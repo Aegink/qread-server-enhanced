@@ -35,8 +35,8 @@ suspend fun updatebook(book: Booklist, source: BaseSource,user: Users) {
     }
 }
 
-fun getlist(url:String):List<BookChapter>{
-    val book = Book.initLocalBook(url, url, "")
+fun getlist(url: String, userid: String = ""): List<BookChapter> {
+    val book = Book.initLocalBook(url, url, "", userid)
     val chapters = LocalBook.getChapterList(book)
     return  chapters
 }

@@ -64,6 +64,14 @@ open class BookController:BaseController() {
     @Inject(value = "\${user.proxypng:false}", autoRefreshed=true)
     var proxypng:Boolean=false
 
+    private fun proxyImageUrl(url: String?, accessToken: String?): String? {
+        if (url.isNullOrEmpty() || url.contains("baseurl/proxypng?")) {
+            return url
+        }
+        return "baseurl/proxypng?accessToken=${URLEncoder.encode(accessToken, "UTF-8")}" +
+            "&url=${URLEncoder.encode(url, "UTF-8")}"
+    }
+
 
 
     fun search(accessToken:String?, bookSourceUrl:String?, page:Int?, key:String?,type:Int)= runBlocking{
@@ -140,9 +148,7 @@ open class BookController:BaseController() {
         }
         val mybook=booklistMapper.getbook(user.id!!,book.bookUrl) ?: throw DataThrowable().data(JsonResponse(false,NO_BOOK))
         if(proxypng){
-            if (!book.coverUrl.isNullOrEmpty() && !book.coverUrl!!.contains("baseurl/proxypng?url=")){
-                book.coverUrl = "baseurl/proxypng?url=${URLEncoder.encode(book.coverUrl,"UTF-8")}"
-            }
+            book.coverUrl = proxyImageUrl(book.coverUrl, accessToken)
         }
         booklistMapper.upbookinfo(mybook.id?:"",book.name,book.author,book.coverUrl?:"",book.intro?:"")
         web.notification.Book.sendNotification(user)
@@ -226,9 +232,7 @@ open class BookController:BaseController() {
             val s= BookSource.fromJson(source.json).getOrNull()
             this.needimageDecode(s)
             if(proxypng){
-                if (!this.coverUrl.isNullOrEmpty() && !this.coverUrl!!.contains("baseurl/proxypng?url=")){
-                    this.coverUrl = "baseurl/proxypng?url=${URLEncoder.encode(this.coverUrl,"UTF-8")}"
-                }
+                this.coverUrl = proxyImageUrl(this.coverUrl, accessToken)
             }
         })
         web.notification.Book.sendNotification(user)
@@ -281,9 +285,7 @@ open class BookController:BaseController() {
                 val booktolist=Booklist.tobooklist(book,user.id!!)
                 num+=booklistMapper.insert(booktolist.bookto(book, canchangeindex = true).apply {
                     if(proxypng){
-                        if (!this.coverUrl.isNullOrEmpty() && !this.coverUrl!!.contains("baseurl/proxypng?url=")){
-                            this.coverUrl = "baseurl/proxypng?url=${URLEncoder.encode(this.coverUrl,"UTF-8")}"
-                        }
+                        this.coverUrl = proxyImageUrl(this.coverUrl, accessToken)
                     }
                 })
             }
@@ -326,12 +328,8 @@ open class BookController:BaseController() {
             s?.userid=user.id
             book.needimageDecode(s)
             if(proxypng){
-                if (!book.coverUrl.isNullOrEmpty() && !book.coverUrl!!.contains("baseurl/proxypng?url=")){
-                    book.coverUrl = "baseurl/proxypng?url=${URLEncoder.encode(book.coverUrl,"UTF-8")}"
-                }
-                if (!book.customCoverUrl.isNullOrEmpty() && !book.customCoverUrl!!.contains("baseurl/proxypng?url=")){
-                    book.customCoverUrl = "baseurl/proxypng?url=${URLEncoder.encode(book.customCoverUrl,"UTF-8")}"
-                }
+                book.coverUrl = proxyImageUrl(book.coverUrl, accessToken)
+                book.customCoverUrl = proxyImageUrl(book.customCoverUrl, accessToken)
             }
             booklistMapper.updateById(book)
             web.notification.Book.sendNotification(user)
@@ -524,16 +522,18 @@ open class BookController:BaseController() {
             var cookie1 = cookie
             if(cookie1.isNotEmpty()){
                 cookie1= EncryptUtils.aesDecrypted(cookie)
-                logger.info("cookie:解密后长度${cookie.length}")
+                logger.debug("cookie ciphertext length:${cookie.length}")
             }
             CookieStore(user.id!!).setCookie(url,cookie1)
         }.onFailure {
-            it.printStackTrace()
+            logger.warn("cookie decrypt or save failed: ${it.message}")
         }
         if(!id.isNullOrBlank()){
             runBlocking {
                 logger.info("webview:$id,加载完成")
-                ResponseManager.completeRequest(id,html?:"")
+                if (!ResponseManager.completeRequest(id, accessToken!!, html ?: "")) {
+                    throw DataThrowable().data(JsonResponse(false, NOT_IS))
+                }
             }
         }
         JsonResponse(true)
@@ -546,18 +546,20 @@ open class BookController:BaseController() {
             throw DataThrowable().data(JsonResponse(false,NOT_BANK))
         }
         val cookie=CookieStore(user.id!!).getCookie(url)
-        logger.info("cookie加密后:$cookie")
+        logger.debug("getCookies domain:${NetworkUtils.getSubDomain(url)}, cookieLength:${cookie.length}")
         JsonResponse(true).Data(EncryptUtils.aesEncode(cookie))
     }
 
     //@CacheRemove(tags = "search\${accessToken}")
     @Mapping("/savehtml")
-    open fun savehtml( accessToken:String?, html: String?, id: String?)=run{
-        if(!id.isNullOrBlank()){
-            runBlocking {
-                logger.info("webview:$id,加载完成,htm:$html")
-                ResponseManager.completeRequest(id,html?:"")
-            }
+    open fun savehtml(accessToken: String?, html: String?, id: String?) = run {
+        getuserbytocken(accessToken)
+        if (id.isNullOrBlank()) {
+            throw DataThrowable().data(JsonResponse(false, NOT_BANK))
+        }
+        logger.info("webview:$id,加载完成")
+        if (!ResponseManager.completeRequest(id, accessToken!!, html ?: "")) {
+            throw DataThrowable().data(JsonResponse(false, NOT_IS))
         }
         JsonResponse(true)
     }
@@ -581,10 +583,11 @@ open class BookController:BaseController() {
 
 
     @Mapping("/noCookies")
-    open fun noCookies( accessToken:String?,id:String?)=run{
-       if(id.isNullOrBlank()) throw DataThrowable().data(JsonResponse(false, NOT_BANK))
-        runBlocking {
-            ResponseManager.completeRequest(id,"")
+    open fun noCookies(accessToken: String?, id: String?) = run {
+        getuserbytocken(accessToken)
+        if (id.isNullOrBlank()) throw DataThrowable().data(JsonResponse(false, NOT_BANK))
+        if (!ResponseManager.completeRequest(id, accessToken!!, "")) {
+            throw DataThrowable().data(JsonResponse(false, NOT_IS))
         }
         JsonResponse(true)
     }

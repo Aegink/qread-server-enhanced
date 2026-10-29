@@ -32,6 +32,7 @@ class RssSourceController {
         PageByAjax(rssSourceMapper,queryWrapper,page,limit,order)
     }
 
+    @Post
     @Mapping("/delRssSource")
     fun delRssSource(id: String?) = run{
         if (id.isNullOrBlank()){
@@ -43,6 +44,7 @@ class RssSourceController {
         JsonResponse(true)
     }
 
+    @Post
     @Mapping("/delRssSources")
     fun delRssSources(@Body ids: List<String>?) = run{
         ids?.forEach {id->
@@ -54,6 +56,7 @@ class RssSourceController {
         JsonResponse(true)
     }
 
+    @Post
     @Mapping("/stopRssSource")
     fun stopRssSource(id: String? ,st: String?)= run{
         if (id.isNullOrBlank()){
@@ -73,6 +76,7 @@ class RssSourceController {
         JsonResponse(true)
     }
 
+    @Post
     @Mapping("/topRssSource")
     fun topRssSource( id: String?)= run{
         if (id.isNullOrBlank()){
@@ -93,6 +97,7 @@ class RssSourceController {
         JsonResponse(true)
     }
 
+    @Post
     @Mapping("/uploadRssSource")
     fun uploadRssSource(file: UploadedFile) = run{
         val content = String(file.contentAsBytes)

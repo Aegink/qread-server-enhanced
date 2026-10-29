@@ -22,7 +22,10 @@ import web.util.mail.Mail
 open class HomeController {
     private val logger = LoggerFactory.getLogger(HomeController::class.java)
     companion object{
-        var needcode=true;
+        var needcode=true
+        private const val resetCodeTtlSeconds = 10 * 60
+        private const val maxResetAttempts = 5
+        private val resetCodeLock = Any()
     }
 
     @get:Get
@@ -159,7 +162,7 @@ open class HomeController {
     }
 
     @Mapping("/sendResetCode")
-    fun sendResetCode( email: String?)=run {
+    fun sendResetCode(ctx: Context, email: String?)=run {
         if (email.isNullOrBlank()   )  {
             throw DataThrowable().data(JsonResponse(isSuccess = false, errorMsg = EMAIL_ERROR))
         }
@@ -172,19 +175,23 @@ open class HomeController {
         }
 
         val c= getMailCode()
-        cacheService.store("code_$email",c,60*10)
-        logger.info("$email has been sent to $c")
         runCatching {
             Mail.sendCode(c,email)
         }.onFailure {
             throw DataThrowable().data(JsonResponse(isSuccess = false, errorMsg = it.message?:"邮件发送失败"))
         }
+        synchronized(resetCodeLock) {
+            cacheService.store("code_$email",c,resetCodeTtlSeconds)
+            cacheService.remove("codeattempt_$email")
+            cacheService.remove(resetIpAttemptKey(email, ctx.realIp()))
+        }
+        logger.info("reset code sent to ${maskEmail(email)}")
         cacheService.store("codetime_$email",ct+1,60*60*24)
         JsonResponse(true)
     }
 
     @Mapping("/resetPassword")
-    fun  resetPassword( password:String? , code:String? ,email:String?)=run {
+    fun resetPassword(ctx: Context, password:String? , code:String? ,email:String?)=run {
         if( password.isNullOrBlank() || email.isNullOrBlank() || code.isNullOrBlank()){
             throw DataThrowable().data(JsonResponse(false,NOT_BANK))
         }
@@ -199,14 +206,39 @@ open class HomeController {
         if(user.email != email){
             throw DataThrowable().data(JsonResponse(false,EMAIL_CHECK_ERROR))
         }
-        val c=cacheService.get("code_$email",String::class.java)
-        if(c != code){
-            throw DataThrowable().data(JsonResponse(false, CODE_CHECK_ERROR))
+        synchronized(resetCodeLock) {
+            val attemptKey = "codeattempt_$email"
+            val ipAttemptKey = resetIpAttemptKey(email, ctx.realIp())
+            val c=cacheService.get("code_$email",String::class.java)
+            if(c != code){
+                val attempts = (cacheService.get(attemptKey,Int::class.java) ?: 0) + 1
+                val ipAttempts = (cacheService.get(ipAttemptKey,Int::class.java) ?: 0) + 1
+                if (attempts >= maxResetAttempts || ipAttempts >= maxResetAttempts) {
+                    cacheService.remove("code_$email")
+                    cacheService.remove(attemptKey)
+                    cacheService.remove(ipAttemptKey)
+                    throw DataThrowable().data(JsonResponse(false, CODE_CHECK_ERROR))
+                }
+                cacheService.store(attemptKey, attempts, resetCodeTtlSeconds)
+                cacheService.store(ipAttemptKey, ipAttempts, resetCodeTtlSeconds)
+                throw DataThrowable().data(JsonResponse(false, CODE_CHECK_ERROR))
+            }
+            cacheService.remove("code_$email")
+            cacheService.remove(attemptKey)
+            cacheService.remove(ipAttemptKey)
         }
-        cacheService.remove("code_$email")
         usersMapper.changepass(user.id!!, passsign( password))
 
         JsonResponse(true)
+    }
+    private fun resetIpAttemptKey(email: String, ip: String): String {
+        return "codeattempt_ip_${email}_$ip"
+    }
+
+    private fun maskEmail(email: String): String {
+        val at = email.indexOf('@')
+        if (at <= 1) return "***${email.substring(at.coerceAtLeast(0))}"
+        return "${email.first()}***${email.substring(at)}"
     }
 
 

@@ -7,10 +7,10 @@ import org.noear.solon.annotation.Inject
 import org.noear.solon.annotation.Mapping
 import org.noear.solon.core.handle.Context
 import org.noear.solon.core.util.DataThrowable
-import org.noear.solon.data.annotation.Cache
 import org.noear.solon.data.cache.CacheService
 import web.response.JsonResponse
 import web.response.NOT_TXT
+import web.util.security.LocalBookSecurity
 import java.io.File
 
 @Controller
@@ -18,9 +18,7 @@ open class LocalBookController {
 
     @Mapping("/searchlocalbook")
     fun search(ctx: Context, path: String?,key:String?): JsonResponse = run{
-        if(ctx.realIp() != "127.0.0.1"){
-            throw DataThrowable().data(JsonResponse(false, "非发请求"))
-        }
+        requireLocalRequest(ctx)
         if(key.isNullOrBlank()){
             throw DataThrowable().data(JsonResponse(false, "关键字不能为空"))
         }
@@ -51,12 +49,9 @@ open class LocalBookController {
 
     val cachetime=60
 
-    @Cache(key = "searchlocalbook2:\${path}\${key}\${page}",  seconds = 60)
     @Mapping("/searchlocalbook2")
     fun search2(ctx: Context, path: String?,key:String?,page: Int?): JsonResponse = run{
-        if(ctx.realIp() != "127.0.0.1"){
-            throw DataThrowable().data(JsonResponse(false, "非发请求"))
-        }
+        requireLocalRequest(ctx)
         if(key.isNullOrBlank()){
             throw DataThrowable().data(JsonResponse(false, "关键字不能为空"))
         }
@@ -71,6 +66,11 @@ open class LocalBookController {
             throw DataThrowable().data(JsonResponse(false, "路径不是文件夹"))
         }
         val p=if (page ==null) 1 else page
+        val cacheKey = "searchlocalbook2:${path}${key}${p}"
+        if (p > 1) {
+            return@run cacheService.get(cacheKey, JsonResponse::class.java)
+                ?: JsonResponse(true).Data(mutableListOf<Book>())
+        }
         val books = mutableListOf<Book>()
         if(p == 1){
             getname(file).forEach { k,v->
@@ -96,7 +96,9 @@ open class LocalBookController {
 
                 }
             }
-            JsonResponse(true).Data(books2)
+            val result = JsonResponse(true).Data(books2)
+            cacheService.store(cacheKey, result, cachetime)
+            result
         }else{
             JsonResponse(true).Data(books)
         }
@@ -104,9 +106,7 @@ open class LocalBookController {
 
     @Mapping("/getlocalbookinfo")
     fun info(ctx: Context,path: String?): JsonResponse = run{
-        if(ctx.realIp() != "127.0.0.1"){
-            throw DataThrowable().data(JsonResponse(false, "非发请求"))
-        }
+        requireLocalRequest(ctx)
         if(path.isNullOrBlank()){
             throw DataThrowable().data(JsonResponse(false, "路径不能为空"))
         }
@@ -114,7 +114,7 @@ open class LocalBookController {
         if(!file.exists()){
             throw DataThrowable().data(JsonResponse(false, "文件夹不存在"))
         }
-        if(!file.name.endsWith(".txt") && !file.name.endsWith(".epub")){
+        if(!isSupportedLocalBook(file)){
             throw DataThrowable().data(JsonResponse(false,NOT_TXT))
         }
         val book = Book.initLocalBook(file.path, file.path, "")
@@ -123,9 +123,7 @@ open class LocalBookController {
 
     @Mapping("/getlocalbookinfoChapterList")
     fun getChapterList(ctx: Context,path: String?) = run{
-        if(ctx.realIp() != "127.0.0.1"){
-            throw DataThrowable().data(JsonResponse(false, "非发请求"))
-        }
+        requireLocalRequest(ctx)
         if(path.isNullOrBlank()){
             throw DataThrowable().data(JsonResponse(false, "路径不能为空"))
         }
@@ -133,7 +131,7 @@ open class LocalBookController {
         if(!file.exists()){
             throw DataThrowable().data(JsonResponse(false, "文件夹不存在"))
         }
-        if(!file.name.endsWith(".txt") && !file.name.endsWith(".epub")){
+        if(!isSupportedLocalBook(file)){
             throw DataThrowable().data(JsonResponse(false,NOT_TXT))
         }
         val book = Book.initLocalBook(file.path, file.path, "")
@@ -143,9 +141,7 @@ open class LocalBookController {
 
     @Mapping("/getlocalbookinfoContent")
     fun getContent(ctx: Context,path: String?,index: Int?) = run{
-        if(ctx.realIp() != "127.0.0.1"){
-            throw DataThrowable().data(JsonResponse(false, "非发请求"))
-        }
+        requireLocalRequest(ctx)
         if(path.isNullOrBlank()){
             throw DataThrowable().data(JsonResponse(false, "路径不能为空"))
         }
@@ -153,7 +149,7 @@ open class LocalBookController {
         if(!file.exists()){
             throw DataThrowable().data(JsonResponse(false, "文件夹不存在"))
         }
-        if(!file.name.endsWith(".txt") && !file.name.endsWith(".epub")){
+        if(!isSupportedLocalBook(file)){
             throw DataThrowable().data(JsonResponse(false,NOT_TXT))
         }
         val book = Book.initLocalBook(file.path, file.path, "")
@@ -172,12 +168,21 @@ open class LocalBookController {
             if(it.isDirectory && it.name != file.name){
                 books.putAll(getname(it))
             }else{
-                if(it.name.endsWith(".txt") || it.name.endsWith(".epub")){
+                if(isSupportedLocalBook(it)){
                     books[it.nameWithoutExtension] = it.path
                 }
             }
         }
         return books
     }
+
+    private fun requireLocalRequest(ctx: Context) {
+        if (!LocalBookSecurity.isLocalSocketRequest(ctx)) {
+            throw DataThrowable().data(JsonResponse(false, "非法请求"))
+        }
+    }
+
+    private fun isSupportedLocalBook(file: File): Boolean =
+        LocalBook.isSupportedFile(file)
 
 }

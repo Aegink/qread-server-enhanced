@@ -47,6 +47,12 @@ class Booklist {
                 64,2 ->{
                     field=2
                 }
+                3 -> {
+                    field=3
+                }
+                4 -> {
+                    field=4
+                }
                 else ->{
                     field=0
                 }

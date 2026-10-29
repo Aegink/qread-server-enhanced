@@ -7,6 +7,7 @@ import org.noear.solon.annotation.Get
 import org.noear.solon.annotation.Inject
 import org.noear.solon.annotation.Mapping
 import org.noear.solon.annotation.Param
+import org.noear.solon.annotation.Post
 import org.noear.solon.core.handle.UploadedFile
 import org.noear.solon.core.util.DataThrowable
 import web.mapper.BookSourceMapper
@@ -36,6 +37,7 @@ class BookSourceController {
         PageByAjax(bookSourceMapper,queryWrapper,page,limit,order)
     }
 
+    @Post
     @Mapping("/uploadSource")
     fun uploadSource(file: UploadedFile) = run{
         val content = String(file.contentAsBytes)
@@ -76,6 +78,7 @@ class BookSourceController {
         JsonResponse(true,"新增${insert}条书源，更新${update}条书源")
     }
 
+    @Post
     @Mapping("/delbookSource")
     fun delbookSource(id: String?) = run{
         if (id.isNullOrBlank()){
@@ -87,6 +90,7 @@ class BookSourceController {
         JsonResponse(true)
     }
 
+    @Post
     @Mapping("/delbookSources")
     fun delbookSources(@Body ids: List<String>?) = run{
         ids?.forEach {id->
@@ -98,6 +102,7 @@ class BookSourceController {
         JsonResponse(true)
     }
 
+    @Post
     @Mapping("/stopbookSource")
     fun stopbookSource(id: String? ,st: String?)= run{
         if (id.isNullOrBlank()){
@@ -117,6 +122,7 @@ class BookSourceController {
         JsonResponse(true)
     }
 
+    @Post
     @Mapping("/stopbookSourceExplore")
     fun stopbookSourceExplore( id: String? ,st: String?)= run{
         if (id.isNullOrBlank()){
@@ -136,6 +142,7 @@ class BookSourceController {
         JsonResponse(true)
     }
 
+    @Post
     @Mapping("/topSource")
     fun topSource( id: String?)= run{
         if (id.isNullOrBlank()){

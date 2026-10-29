@@ -20,9 +20,7 @@ class CodeJob : Runnable{
         if (mycode.isBlank()) return@runBlocking
         runCatching {
             val data=postRequest("http://app.qread.xyz/appapi/NeedCode","key="+mycode)
-            val jd= GSON.fromJson<Map<String, Any>>(data, Map::class.java)
-            val  code=jd["code"] as Double
-            if (code == 0.0){
+            if (isInvitationCodeRequired(data)) {
                 logger.info("需要邀请码")
                 HomeController.needcode=true
             }else{
@@ -30,8 +28,15 @@ class CodeJob : Runnable{
                 HomeController.needcode=false
             }
         }.onFailure {
-            it.printStackTrace()
+            logger.warn("邀请码状态检查失败: {}", it.message)
         }
+    }
+
+    internal fun isInvitationCodeRequired(data: String): Boolean {
+        val json = GSON.fromJson<Map<String, Any>>(data, Map::class.java)
+        val code = (json["code"] as? Number)?.toDouble()
+            ?: throw IllegalArgumentException("邀请码状态响应缺少数值 code")
+        return code == 0.0
     }
 
 

@@ -15,6 +15,7 @@ import web.model.Booklist
 import web.response.*
 import web.util.cache.getlocalpath
 import web.util.hash.Md5
+import web.util.security.LocalBookSecurity
 import java.io.File
 import java.net.URLDecoder
 import kotlin.concurrent.thread
@@ -23,6 +24,12 @@ import kotlin.concurrent.thread
 @Mapping(routepath)
 @CrossOrigin(origins = "*")
 open class LocalBookController:BaseController() {
+
+    companion object {
+        private const val maxImageSize = 10 * 1024 * 1024
+        private const val maxUserImageQuota = 100L * 1024 * 1024
+        private val imageUploadLock = Any()
+    }
 
     private val imagesDir = FileUtils.createFolderIfNotExist(appCtx.externalFiles, "assets","images")
 
@@ -40,8 +47,13 @@ open class LocalBookController:BaseController() {
         if(user.AllowUpTxt != true) {
             throw DataThrowable().data(JsonResponse(false,NOT_ALLOW_TXT))
         }
-        if(!file.name.endsWith(".txt") && !file.name.endsWith(".epub")){
-            throw DataThrowable().data(JsonResponse(false,NOT_TXT))
+        val contentSize = file.contentSize
+        if (contentSize > LocalBookSecurity.MAX_BOOK_SIZE_BYTES) {
+            throw DataThrowable().data(JsonResponse(false, "书籍文件不能超过50MB"))
+        }
+        val bytes = file.content.readNBytes((LocalBookSecurity.MAX_BOOK_SIZE_BYTES + 1).toInt())
+        LocalBookSecurity.validateBookUpload(file.name, contentSize, bytes)?.let { reason ->
+            throw DataThrowable().data(JsonResponse(false, reason))
         }
         var f1=file.name
         kotlin.runCatching {
@@ -54,8 +66,8 @@ open class LocalBookController:BaseController() {
         if(!ufile.exists()){ufile.mkdirs()}
         val localpath= "$uploadDir/$f1"
         val  uploadedFile =  File(localpath)
-        uploadedFile.writeBytes(file.contentAsBytes)
-        val book = Book.initLocalBook(localpath, localpath, "")
+        uploadedFile.writeBytes(bytes)
+        val book = Book.initLocalBook(localpath, localpath, "", user.id!!)
         val chapters = LocalBook.getChapterList(book)
         val booklist= Booklist().create().bookto(book)
         booklistMapper.getbook(user.id!!,book.bookUrl)?.let {
@@ -83,16 +95,49 @@ open class LocalBookController:BaseController() {
     }
 
     @Mapping("/uploadimage")
-    open fun  uploadimage(accessToken:String?, file: UploadedFile?)= run{
-        if(file == null) throw DataThrowable().data(JsonResponse(false, NOT_BANK))
-        if (file.isEmpty) {
+    open fun uploadimage(accessToken: String?, file: UploadedFile?) = run {
+        val user = getuserbytocken(accessToken)
+        if (file == null || file.isEmpty) {
             throw DataThrowable().data(JsonResponse(false, NOT_BANK))
         }
-        val fb=file.contentAsBytes;
-        val f1="${Md5(fb)}.png"
-        val valueFile = FileUtils.createFileIfNotExist(imagesDir,f1)
-        valueFile.writeBytes(fb)
-        JsonResponse(true).Data("http//assets/images/"+f1)
+        val bytes = file.contentAsBytes
+        if (bytes.size > maxImageSize) {
+            throw DataThrowable().data(JsonResponse(false, "图片不能超过10MB"))
+        }
+        val extension = imageExtension(bytes)
+            ?: throw DataThrowable().data(JsonResponse(false, "仅允许上传 PNG/JPEG/GIF/WebP 图片"))
+        val userImageDir = FileUtils.createFolderIfNotExist(imagesDir, user.id!!)
+        val fileName = "${Md5(bytes).joinToString("") { "%02x".format(it) }}.$extension"
+        val valueFile = FileUtils.getFile(userImageDir, fileName)
+        synchronized(imageUploadLock) {
+            if (!valueFile.exists()) {
+                val usedBytes = userImageDir.listFiles()?.sumOf { if (it.isFile) it.length() else 0L } ?: 0L
+                if (usedBytes + bytes.size > maxUserImageQuota) {
+                    throw DataThrowable().data(JsonResponse(false, "图片空间已满"))
+                }
+                valueFile.writeBytes(bytes)
+            }
+        }
+        JsonResponse(true).Data("http//assets/images/${user.id}/$fileName")
+    }
+
+    private fun imageExtension(bytes: ByteArray): String? {
+        if (bytes.size >= 8 && bytes.copyOfRange(0, 8).contentEquals(
+                byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))) {
+            return "png"
+        }
+        if (bytes.size >= 3 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte()) {
+            return "jpg"
+        }
+        if (bytes.size >= 6) {
+            val signature = bytes.copyOfRange(0, 6).toString(Charsets.US_ASCII)
+            if (signature == "GIF87a" || signature == "GIF89a") return "gif"
+        }
+        if (bytes.size >= 12 && bytes.copyOfRange(0, 4).toString(Charsets.US_ASCII) == "RIFF" &&
+            bytes.copyOfRange(8, 12).toString(Charsets.US_ASCII) == "WEBP") {
+            return "webp"
+        }
+        return null
     }
 
 }

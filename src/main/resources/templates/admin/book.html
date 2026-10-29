@@ -43,6 +43,11 @@
 
     }
   </style>
+    <div class="layui-panel" role="alert" style="margin-bottom: 16px; border: 1px solid #ff5722; background: #fff7f3;">
+        <div style="padding: 12px 16px; color: #8a2d12; line-height: 1.6;">
+            <strong>书源安全警告：</strong>书源规则可执行 Java 和 JavaScript 代码，拥有访问服务端数据与网络的能力。仅导入可信来源，并在导入前审查规则内容。
+        </div>
+    </div>
     <div style="margin-left: 0px">
         <form class="layui-form" action="">
             <div class="layui-form-item">
@@ -149,6 +154,7 @@
         upload.render({
             elem: '#upload', // 绑定多个元素
             url: '/admin/uploadSource', // 此处配置你自己的上传接口即可
+            headers: {'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content},
             accept: 'file', // 普通文件
             done: function(res){
                 layer.msg(res.errorMsg);

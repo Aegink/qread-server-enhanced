@@ -6,6 +6,7 @@ import org.apache.ibatis.solon.annotation.Db
 import org.noear.solon.annotation.Body
 import org.noear.solon.annotation.Controller
 import org.noear.solon.annotation.Inject
+import org.noear.solon.annotation.Get
 import org.noear.solon.annotation.Mapping
 import org.noear.solon.annotation.Param
 import org.noear.solon.annotation.Post
@@ -96,6 +97,7 @@ open class UserController {
         JsonResponse(true)
     }
 
+    @Post
     @Mapping("/getuser")
     fun getuser(id: String?) = run{
         if (id.isNullOrBlank()){
@@ -107,6 +109,7 @@ open class UserController {
     }
 
 
+    @Get
     @Mapping("/seachusers")
     fun seachusers(where:String? , order:String? ,@Param(defaultValue = "1") page:Int,@Param(defaultValue = "20") limit:Int) = run  {
         val queryWrapper: QueryWrapper<Users> = QueryWrapper()
@@ -120,6 +123,7 @@ open class UserController {
         }
     }
 
+    @Post
     @Mapping("/deluser")
     fun deluser(id: String?) = runBlocking{
         if (id.isNullOrBlank()){
@@ -131,6 +135,7 @@ open class UserController {
         JsonResponse(true)
     }
 
+    @Post
     @Mapping("/delusers")
     fun delusers(@Body ids:List<String>?) = runBlocking{
         ids?.forEach { id-> runCatching {

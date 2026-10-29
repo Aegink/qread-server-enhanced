@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="csrf-token" content="${csrfToken?html}">
   <title>管理</title>
   <style>
     /* 移动端适配样式 */
@@ -51,6 +52,11 @@
     <li class="layui-nav-item <#if rss??>${rss}</#if>" ><a href="/admin/rss">订阅源</a></li>
     <li class="layui-nav-item <#if code??>${code}</#if>" ><a href="/admin/code">邀请码</a></li>
     <li class="layui-nav-item" ><a href="http://app.qread.xyz/admin" target="_blank">app管理</a></li>
-    <li class="layui-nav-item" style="float: right;"><a href="/admin/logout">退出</a></li>
+    <li class="layui-nav-item" style="float: right;">
+      <form method="post" action="/admin/logout">
+        <input type="hidden" name="_csrf" value="${csrfToken?html}">
+        <button type="submit" class="layui-btn layui-btn-primary" style="border: 0; color: rgba(255,255,255,.7); background: transparent;">退出</button>
+      </form>
+    </li>
   </ul>
 </header>

@@ -50,6 +50,18 @@ object BigDataHelp {
         return list
     }
 
+    @Synchronized
+    fun updateChapterMetadata(bookUrl: String, userid: String, chapter: BookChapter) {
+        val chapters = getChapterList(bookUrl, userid)?.toMutableList() ?: return
+        val target = chapters.getOrNull(chapter.index)?.takeIf { it.url == chapter.url }
+            ?: chapters.firstOrNull { it.url == chapter.url }
+            ?: return
+        target.title = chapter.title
+        target.imgUrl = chapter.imgUrl
+        target.variable = chapter.variable
+        putChapterList(bookUrl, userid, chapters)
+    }
+
     fun  putBookContent(bookUrl: String,userid :String,index: Int, value: String?){
         val md5BookUrl = MD5Utils.md5Encode(bookUrl)
         val file = "$index.txt"

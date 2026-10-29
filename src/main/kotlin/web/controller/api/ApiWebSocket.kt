@@ -4,8 +4,6 @@ import book.app.ToastMessage
 import com.google.gson.Gson
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import org.noear.solon.annotation.Controller
 import org.noear.solon.annotation.Inject
@@ -17,8 +15,10 @@ import org.slf4j.LoggerFactory
 import web.mapper.UsersMapper
 import web.mapper.UsertockenMapper
 import web.util.ResponseManager
+import web.util.auth.resolveUserToken
 import web.util.hash.Md5
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.concurrent.thread
 
 
@@ -34,11 +34,10 @@ class ApiWebSocket : SimpleWebSocketListener() {
 
     companion object{
         val logger: Logger = LoggerFactory.getLogger(ApiWebSocket::class.java)
-        private var ma:MutableMap<String,WebSocketMap> = mutableMapOf()
-        private val mutex = Mutex()
+        private val ma = ConcurrentHashMap<String, WebSocketMap>()
 
-        suspend fun  WaitForResponse(correlationId :String,timeout: Long = 120000):String?= coroutineScope{
-            val deferredResult = ResponseManager.registerRequest(correlationId)
+        suspend fun WaitForResponse(correlationId: String, accessToken: String, timeout: Long = 120000): String? = coroutineScope {
+            val deferredResult = ResponseManager.registerRequest(correlationId, accessToken)
             try {
                 logger.info("Wait for $correlationId")
                 withTimeoutOrNull(timeout) {
@@ -57,17 +56,17 @@ class ApiWebSocket : SimpleWebSocketListener() {
         }
 
 
-        suspend fun add(key:String, value:WebSocket,userid:String,sg: Boolean){
-            mutex.withLock {
-                logger.info("WebSocket Adding $key")
-                ma[key]=WebSocketMap(value,userid,sg)
+        fun add(key: String, value: WebSocket, userid: String, sg: Boolean) {
+            logger.info("WebSocket Adding $key")
+            ma[key] = WebSocketMap(value, userid, sg)
+        }
+
+        fun remove(key: String, socket: WebSocket) {
+            ma.computeIfPresent(key) { _, current ->
+                if (current.ws === socket) null else current
             }
         }
-        suspend fun remove(key:String){
-            mutex.withLock {
-                ma.remove( key)
-            }
-        }
+
         fun get(key:String):WebSocket?{
             return ma[key]?.ws
         }
@@ -75,56 +74,41 @@ class ApiWebSocket : SimpleWebSocketListener() {
             return ma[key]
         }
 
-        suspend fun getByuserids(userids: List<String>):List<WebSocket>{
-            val list = mutableListOf<WebSocket>()
-            mutex.withLock {
-                for (m in ma){
-                    if(userids.contains(m.value.userid)){
-                        list.add(m.value.ws)
-                    }
-                }
-            }
-            return list
+        fun getByuserids(userids: List<String>):List<WebSocket>{
+            val userIdSet = userids.toHashSet()
+            return ma.values
+                .asSequence()
+                .filter { it.userid in userIdSet }
+                .map { it.ws }
+                .toList()
         }
 
-        suspend fun getByuserid(userid:String):List<WebSocket>{
-            val list = mutableListOf<WebSocket>()
-            mutex.withLock {
-                for (m in ma){
-                    if(m.value.userid == userid){
-                        list.add(m.value.ws)
-                    }
-                }
-            }
-            return list
+        fun getByuserid(userid:String):List<WebSocket>{
+            return ma.values
+                .asSequence()
+                .filter { it.userid == userid }
+                .map { it.ws }
+                .toList()
         }
 
 
-        suspend fun colseByuserid(userid:String){
-            mutex.withLock {
-                for (m in ma){
-                    if(m.value.userid == userid){
-                        thread {
-                            runCatching {
-                                m.value.ws.close()
-                            }
-                        }
+        fun colseByuserid(userid:String){
+            getByuserid(userid).forEach { socket ->
+                thread {
+                    runCatching {
+                        socket.close()
                     }
                 }
             }
         }
 
 
-        suspend fun getByuserid(userid:String,tocken: String):List<WebSocket>{
-            val list = mutableListOf<WebSocket>()
-            mutex.withLock {
-                for (m in ma){
-                    if(m.key != tocken && m.value.userid == userid){
-                        list.add(m.value.ws)
-                    }
-                }
-            }
-            return list
+        fun getByuserid(userid:String,tocken: String):List<WebSocket>{
+            return ma.entries
+                .asSequence()
+                .filter { it.key != tocken && it.value.userid == userid }
+                .map { it.value.ws }
+                .toList()
         }
     }
 
@@ -143,7 +127,7 @@ class ApiWebSocket : SimpleWebSocketListener() {
             return
         }
 
-        val tocken=usertockenMapper.getUsertocken(accessToken)
+        val tocken = resolveUserToken(usertockenMapper, accessToken)
         if (tocken == null) {
             logger.info("websocket tocken is null")
             socket.send(Gson().toJson(ToastMessage(msg = "logout", str="logout" )))
@@ -165,7 +149,7 @@ class ApiWebSocket : SimpleWebSocketListener() {
             user.rssmd5=Md5(System.currentTimeMillis().toString())
         }
         val sg: String? = socket.param("sg")
-        runBlocking {add(accessToken,socket,user.id!!,!sg.isNullOrBlank())}
+        add(accessToken, socket, user.id!!, !sg.isNullOrBlank())
         runCatching {
             socket.send(Gson().toJson(Md5Message(
                 msg = "init",
@@ -229,8 +213,8 @@ class ApiWebSocket : SimpleWebSocketListener() {
 
     override  fun onClose(socket: WebSocket?){
         super.onClose(socket)
-         runBlocking {
-             remove(socket!!.param("id"))
+        socket?.let { currentSocket ->
+            remove(currentSocket.param("id"), currentSocket)
         }
     }
 }

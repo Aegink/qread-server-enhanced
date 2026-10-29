@@ -21,6 +21,8 @@ class BookChapter(
     var end: Long? = null,               // 章节终止位置
     var startFragmentId: String? = null,  //EPUB书籍当前章节的fragmentId
     var endFragmentId: String? = null,    //EPUB书籍下一章节的fragmentId
+    var imgUrl: String? = null,            // 标题段评图或视频封面
+    var variable: String? = null,           // 章节规则变量
     var lastCheckTime: Long? = null,
     var userid: String = ""
 ) {
@@ -59,6 +61,8 @@ class BookChapter(
                         end=element.end,
                         startFragmentId=element.startFragmentId,
                         endFragmentId=element.endFragmentId,
+                        imgUrl=element.imgUrl,
+                        variable=element.variable,
                         lastCheckTime=element.lastCheckTime,
                         userid=element.userid
                     ))
@@ -86,6 +90,8 @@ class BookChapter(
             end=this.end,
             startFragmentId=this.startFragmentId,
             endFragmentId=this.endFragmentId,
+            imgUrl=this.imgUrl,
+            variable=this.variable,
             lastCheckTime=this.lastCheckTime,
             userid=this.userid
         )

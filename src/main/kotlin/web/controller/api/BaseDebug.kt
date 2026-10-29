@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory
 import web.mapper.UsersMapper
 import web.mapper.UsertockenMapper
 import web.model.Users
+import web.util.auth.resolveUserToken
 
 open class BaseDebug: SimpleWebSocketListener()  {
     @Inject
@@ -27,7 +28,7 @@ open class BaseDebug: SimpleWebSocketListener()  {
             return
         }
 
-        val tocken=usertockenMapper.getUsertocken(accessToken)
+        val tocken = resolveUserToken(usertockenMapper, accessToken)
         if (tocken == null) {
             logger.info("websocket tocken is null")
             socket.close()
@@ -46,7 +47,7 @@ open class BaseDebug: SimpleWebSocketListener()  {
         if (accessToken.isNullOrBlank()) {
             return null
         }
-        val tocken= usertockenMapper.getUsertocken(accessToken) ?: return null
+        val tocken = resolveUserToken(usertockenMapper, accessToken) ?: return null
         val user=tocken.userid?.let { usersMapper.getUser(it) }
         return user
     }

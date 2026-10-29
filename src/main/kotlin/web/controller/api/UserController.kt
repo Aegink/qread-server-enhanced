@@ -12,6 +12,7 @@ import web.model.Users
 import web.model.Usertocken
 import web.response.*
 import web.util.admin.passsign
+import web.util.admin.verifyPassword
 
 @Controller
 @Mapping(routepath)
@@ -59,8 +60,12 @@ open class UserController:BaseController() {
         }
         val users=usersMapper.getUserByusernameoremail(username)
         val user:Users? = if (users.isNotEmpty()) users[0] else null
-        if (user == null || !user.password.equals(passsign( password))) {
+        val passwordVerification = user?.let { verifyPassword(password, it.password) }
+        if (user == null || passwordVerification?.isValid != true) {
             throw DataThrowable().data(JsonResponse(false,PASS_ERROR))
+        }
+        if (passwordVerification.needsUpgrade) {
+            usersMapper.changepass(user.id!!, passsign(password))
         }
         if(v < apiversion){
             throw DataThrowable().data(JsonResponse(false,"当前app版本已不在支持，请更新版本"))
@@ -78,7 +83,7 @@ open class UserController:BaseController() {
         tocken.model=model?:""
         usertockenMapper.insert(tocken)
 
-        JsonResponse(true,"success").Data(mapOf("accessToken" to tocken.id))
+        JsonResponse(true,"success").Data(mapOf("accessToken" to tocken.accessToken))
     }
 
     @Cache(key = "getUserInfo:\${accessToken}", tags = "getUserInfo", seconds = 600)
@@ -99,7 +104,7 @@ open class UserController:BaseController() {
             throw DataThrowable().data(JsonResponse(false,PASS_VAIL_ERROR))
         }
         val user=getuserbytocken(accessToken)
-        if (!user.password.equals(passsign( oldpassword))) {
+        if (!verifyPassword(oldpassword, user.password).isValid) {
             throw DataThrowable().data(JsonResponse(false,PASS_ERROR))
         }
         usersMapper.changepass(user.id!!,passsign( password))

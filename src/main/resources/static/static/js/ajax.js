@@ -1,3 +1,7 @@
+ function csrfHeaders() {
+     var element = document.querySelector('meta[name="csrf-token"]');
+     return element ? {'X-CSRF-Token': element.getAttribute('content')} : {};
+ }
  function ajax (type,src,data,success) {
         var closeindex = layer.load();
         $.ajax({
@@ -5,6 +9,7 @@
             url: src,
             data: data,
             dataType: 'json',
+            headers: csrfHeaders(),
             xhrFields: {
                 withCredentials: true
             },
@@ -31,6 +36,7 @@
          data: JSON.stringify(data),
          contentType: "application/json; charset=utf-8",
          dataType: 'json',
+         headers: csrfHeaders(),
          xhrFields: {
              withCredentials: true
          },

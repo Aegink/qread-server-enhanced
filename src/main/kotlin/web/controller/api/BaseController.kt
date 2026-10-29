@@ -12,6 +12,7 @@ import web.mapper.UsersMapper
 import web.mapper.UsertockenMapper
 import web.model.*
 import web.response.*
+import web.util.auth.resolveUserToken
 
 const val routepath="/api/{v}"
 
@@ -45,7 +46,8 @@ open class BaseController {
         if (accessToken.isNullOrBlank()) {
             throw DataThrowable().data(JsonResponse(false,NEED_LOGIN))
         }
-        val tocken= usertockenMapper.getUsertocken(accessToken) ?: throw DataThrowable().data(JsonResponse(false,NEED_LOGIN))
+        val tocken = resolveUserToken(usertockenMapper, accessToken)
+            ?: throw DataThrowable().data(JsonResponse(false,NEED_LOGIN))
         val user= tocken.userid?.let { usersMapper.getUser(it)  } ?: throw DataThrowable().data(JsonResponse(false,NEED_LOGIN))
         return user
     }

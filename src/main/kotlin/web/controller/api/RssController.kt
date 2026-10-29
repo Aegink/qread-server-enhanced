@@ -112,7 +112,16 @@ open class RssController :BaseController() {
                     "sourceName" to it.sourceName,
                     "sourceIcon" to it.sourceIcon,
                     "sourceGroup" to it.sourceGroup,
-                    "enabled" to it.enabled
+                    "enabled" to it.enabled,
+                    "rssType" to rssSource?.type,
+                    "searchUrl" to rssSource?.searchUrl,
+                    "startHtml" to rssSource?.startHtml,
+                    "startJs" to rssSource?.startJs,
+                    "startStyle" to rssSource?.startStyle,
+                    "preload" to rssSource?.preload,
+                    "preloadJs" to rssSource?.preloadJs,
+                    "cacheFirst" to rssSource?.cacheFirst,
+                    "showWebLog" to rssSource?.showWebLog
                 )
             )
         }
@@ -172,7 +181,16 @@ open class RssController :BaseController() {
                     "sourceName" to it.sourceName,
                     "sourceIcon" to it.sourceIcon,
                     "sourceGroup" to it.sourceGroup,
-                    "enabled" to it.enabled
+                    "enabled" to it.enabled,
+                    "rssType" to rssSource?.type,
+                    "searchUrl" to rssSource?.searchUrl,
+                    "startHtml" to rssSource?.startHtml,
+                    "startJs" to rssSource?.startJs,
+                    "startStyle" to rssSource?.startStyle,
+                    "preload" to rssSource?.preload,
+                    "preloadJs" to rssSource?.preloadJs,
+                    "cacheFirst" to rssSource?.cacheFirst,
+                    "showWebLog" to rssSource?.showWebLog
                 )
             )
         }
@@ -744,6 +762,15 @@ open class RssController :BaseController() {
                 "contentBlacklist" to rssSource.contentBlacklist,
                 "contentWhitelist" to rssSource.contentWhitelist,
                 "shouldOverrideUrlLoading" to rssSource.shouldOverrideUrlLoading,
+                "rssType" to rssSource.type,
+                "searchUrl" to rssSource.searchUrl,
+                "startHtml" to rssSource.startHtml,
+                "startJs" to rssSource.startJs,
+                "startStyle" to rssSource.startStyle,
+                "preload" to rssSource.preload,
+                "preloadJs" to rssSource.preloadJs,
+                "cacheFirst" to rssSource.cacheFirst,
+                "showWebLog" to rssSource.showWebLog,
                 "header" to GSON.toJson(header),
             ))
         }.onFailure {
@@ -870,7 +897,7 @@ open class RssController :BaseController() {
             val header=rssSource.getHeaderMap()
             if(body.isNotEmpty()){
                 body=clHtml(body,rssSource)
-                cacheService.store(myid,body,300)
+                cacheService.store(rssHtmlCacheKey(user.id!!, myid),body,300)
             }
             return@runBlocking  JsonResponse(true).Data(mapOf(
                 "content" to body,
@@ -878,7 +905,7 @@ open class RssController :BaseController() {
                 "js" to rssSource.injectJs,
                 "header" to GSON.toJson(header),
                 "baseurl" to rssSource.loadWithBaseUrl,
-                "id" to myid
+                "id" to "$myid&accessToken=$accessToken"
                 ))
         }.onFailure {
             App.log("${rss.sourceName}正文加载失败:${it.message}",accessToken?:"")
@@ -980,9 +1007,19 @@ open class RssController :BaseController() {
 
 
     @Mapping("/getRssContenthtml")
-    fun  getRssContenthtml(ctx: Context, id:String)= runBlocking{
-        val html=cacheService.get(id,String::class.java)
+    fun getRssContenthtml(ctx: Context, accessToken: String?, id: String) = runBlocking {
+        val user = getuserbytocken(accessToken)
+        if (id.isBlank()) throw DataThrowable().data(JsonResponse(false, NOT_BANK))
+        val html = cacheService.get(rssHtmlCacheKey(user.id!!, id), String::class.java)
+            ?: throw DataThrowable().data(JsonResponse(false, NOT_IS))
+        ctx.headerSet("Content-Security-Policy", "default-src 'none'; img-src http: https: data:; media-src http: https:; style-src 'unsafe-inline'; font-src http: https: data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+        ctx.headerSet("X-Content-Type-Options", "nosniff")
+        ctx.headerSet("Referrer-Policy", "no-referrer")
         ctx.outputAsHtml(html)
+    }
+
+    private fun rssHtmlCacheKey(userId: String, id: String): String {
+        return "rssContentHtml:$userId:$id"
     }
 
 

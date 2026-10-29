@@ -5,19 +5,29 @@ import java.util.concurrent.ConcurrentHashMap
 
 // 请求响应管理器（线程安全）
 object ResponseManager {
-    private val pendingRequests = ConcurrentHashMap<String, CompletableDeferred<String>>()
+    private data class PendingResponse(
+        val accessToken: String,
+        val deferred: CompletableDeferred<String>
+    )
 
-    fun registerRequest(correlationId: String): CompletableDeferred<String> {
+    private val pendingRequests = ConcurrentHashMap<String, PendingResponse>()
+
+    fun registerRequest(correlationId: String, accessToken: String): CompletableDeferred<String> {
         return CompletableDeferred<String>().also { deferred ->
-            pendingRequests[correlationId] = deferred
+            pendingRequests[correlationId] = PendingResponse(accessToken, deferred)
         }
     }
 
-    fun completeRequest(correlationId: String, result: String) {
-        pendingRequests.remove(correlationId)?.complete(result)
+    fun completeRequest(correlationId: String, accessToken: String, result: String): Boolean {
+        val pending = pendingRequests[correlationId] ?: return false
+        if (pending.accessToken != accessToken || !pendingRequests.remove(correlationId, pending)) {
+            return false
+        }
+        pending.deferred.complete(result)
+        return true
     }
 
     fun cleanupExpiredRequest(correlationId: String) {
-        pendingRequests.remove(correlationId)?.cancel()
+        pendingRequests.remove(correlationId)?.deferred?.cancel()
     }
 }

@@ -21,6 +21,7 @@ open class CodeController {
     @Inject
     lateinit var codeMapper: CodeMapper
 
+    @Get
     @Mapping("/seachcode")
     fun seachcode(where:String?, order:String?, @Param(defaultValue = "1") page:Int, @Param(defaultValue = "20") limit:Int) = run  {
         val queryWrapper: QueryWrapper<Code> = QueryWrapper()
@@ -52,6 +53,7 @@ open class CodeController {
     }
 
     @Tran
+    @Post
     @Mapping("/delcode")
     fun delcode(code: String?) = run{
         if (code.isNullOrBlank()){
@@ -62,6 +64,7 @@ open class CodeController {
         JsonResponse(true)
     }
 
+    @Post
     @Mapping("/delcodes")
     fun delcodes(@Body ids:List<String>?) = run{
         ids?.forEach { id->

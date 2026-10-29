@@ -23,13 +23,18 @@ import web.response.NOT_BANK
 import web.response.QJsonResponse
 import web.response.USER_IS
 import web.util.admin.getcodes
+import web.util.auth.QApiAuthGuard
+import web.util.auth.QApiAuthStatus
 import web.util.hash.Md5
 import web.util.hash.md5
+import web.util.security.LocalBookSecurity
 
 @CrossOrigin(origins = "*")
 @Controller
 @Mapping("/qapi")
 class QApiController {
+    private val authGuard = QApiAuthGuard()
+
     @Inject(value = "\${admin.code:}", autoRefreshed=true)
     var mycode:String=""
 
@@ -60,26 +65,38 @@ class QApiController {
 
 
 
-    fun checkkey(key: String?){
+    fun checkkey(ctx: Context, key: String?){
         if (mycode.isBlank() ){
             throw DataThrowable().data(QJsonResponse(false).Msg("站点未配置密钥"))
         }
-        if (key != mycode){
-            throw DataThrowable().data(QJsonResponse(false).Msg("密钥错误"))
+        when (authGuard.verify(clientId(ctx), key, mycode)) {
+            QApiAuthStatus.VALID -> Unit
+            QApiAuthStatus.INVALID -> throw DataThrowable()
+                .data(QJsonResponse(false).Msg("密钥错误"))
+            QApiAuthStatus.BLOCKED -> throw DataThrowable()
+                .data(QJsonResponse(false).Msg("尝试次数过多，请稍后重试"))
         }
     }
 
+    private fun clientId(ctx: Context): String {
+        val remoteIp = ctx.remoteIp()
+        return if (LocalBookSecurity.isLoopbackSocketAddress(remoteIp)) {
+            ctx.realIp().ifBlank { remoteIp }
+        } else {
+            remoteIp
+        }
+    }
 
     @Mapping("/check")
-    fun check(key:String? )=run {
-        checkkey(key)
+    fun check(ctx: Context, key:String? )=run {
+        checkkey(ctx, key)
         QJsonResponse(true)
     }
 
 
     @Mapping("/getcode")
-    fun getcode(key: String?,isalltime: Int?)=run {
-        checkkey(key)
+    fun getcode(ctx: Context, key: String?,isalltime: Int?)=run {
+        checkkey(ctx, key)
         val c= getcodes(1)[0]
         if (isalltime == 1){
             val code=Code().create(c)
@@ -92,7 +109,7 @@ class QApiController {
 
 
     @Mapping("/login")
-    fun login(md5: String?,username: String,time: Int)=run {
+    fun login(ctx: Context, md5: String?,username: String,time: Int)=run {
         if (mycode.isBlank() ){
             throw DataThrowable().data("站点未配置密钥")
         }
@@ -101,8 +118,10 @@ class QApiController {
             throw DataThrowable().data("时间错误")
         }
         val signmd5="$username$time$mycode".md5()
-        if (signmd5 != md5){
-            throw DataThrowable().data("验证失败")
+        when (authGuard.verify(clientId(ctx), md5, signmd5)) {
+            QApiAuthStatus.VALID -> Unit
+            QApiAuthStatus.INVALID -> throw DataThrowable().data("验证失败")
+            QApiAuthStatus.BLOCKED -> throw DataThrowable().data("尝试次数过多，请稍后重试")
         }
         val user: Users?=usersMapper.getUserByusername(username)
         if (user == null){
@@ -113,13 +132,13 @@ class QApiController {
         tocken.model="一键登陆"
         usertockenMapper.insert(tocken)
         ModelAndView("ylogin.html").also {
-            it.put("id","\\\"${tocken.id}\\\"")
+            it.put("id","\\\"${tocken.accessToken}\\\"")
         }
     }
 
     @Mapping("/changeSourcePermission")
-    fun changeSourcePermission(key: String?, username: String, permission: Int)=runBlocking {
-        checkkey(key)
+    fun changeSourcePermission(ctx: Context, key: String?, username: String, permission: Int)=runBlocking {
+        checkkey(ctx, key)
         val user: Users?=usersMapper.getUserByusername(username)
         if (user == null){
             throw DataThrowable().data(QJsonResponse(false).Msg("未查询到用户"))
@@ -153,8 +172,8 @@ class QApiController {
 
 
     @Mapping("/changePermission")
-    fun changePermission(key: String?,username: String,permission: Int,allow: Boolean)=runBlocking {
-        checkkey(key)
+    fun changePermission(ctx: Context, key: String?,username: String,permission: Int,allow: Boolean)=runBlocking {
+        checkkey(ctx, key)
         val user: Users?=usersMapper.getUserByusername(username)
         if (user == null){
             throw DataThrowable().data(QJsonResponse(false).Msg("未查询到用户"))
@@ -182,8 +201,8 @@ class QApiController {
 
 
     @Mapping("/regester")
-    fun regester(key: String?,username:String? , password:String? ,phone:String?,email:String?)=run {
-        checkkey(key)
+    fun regester(ctx: Context, key: String?,username:String? , password:String? ,phone:String?,email:String?)=run {
+        checkkey(ctx, key)
         if (username.isNullOrBlank() || password.isNullOrBlank()   || email.isNullOrBlank()  )  {
             throw DataThrowable().data(QJsonResponse(false).Msg("用户名密码或者邮箱不能为空"))
         }
@@ -219,8 +238,8 @@ class QApiController {
     }
 
     @Mapping("/searchByEmail")
-    fun searchByEmail(key: String?,email:String?)=run {
-        checkkey(key)
+    fun searchByEmail(ctx: Context, key: String?,email:String?)=run {
+        checkkey(ctx, key)
         if (email.isNullOrBlank()){
             throw DataThrowable().data(QJsonResponse(false).Msg("邮箱不能为空"))
         }

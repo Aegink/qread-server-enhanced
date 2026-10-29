@@ -20,6 +20,9 @@ import org.noear.solon.core.handle.Context
 import org.noear.solon.core.util.DataThrowable
 import org.noear.solon.data.annotation.CacheRemove
 import org.noear.solon.data.cache.CacheService
+import okhttp3.Dns
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.noear.solon.web.cors.annotation.CrossOrigin
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -40,10 +43,13 @@ import web.util.read.BookContent
 import web.util.read.BookInfo
 import web.util.read.getlist
 import web.util.svg.svg2PNG
+import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
+import java.net.InetAddress
 import java.net.URI
-import java.net.URL
+import java.net.URLConnection
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
 
 
@@ -149,7 +155,7 @@ open class ReadController : BaseController() {
         var chapters:List<BookChapter>?=null
         runCatching {
             when {
-                bookSourceUrl == "loc_book" -> getlist(url).let {
+                bookSourceUrl == "loc_book" -> getlist(url, user.id!!).let {
                     setChapterListbycache(url, it,user.id!!)
                     chapters=it
                 }
@@ -214,11 +220,11 @@ open class ReadController : BaseController() {
             bookSourceUrl == "loc_book" -> {
                 var (chapterlist,_) = getChapterListbycache(url,user.id!!)
                 if (chapterlist == null) {
-                    chapterlist = getlist(url).also {
+                    chapterlist = getlist(url, user.id!!).also {
                         setChapterListbycache(url, it,user.id!!)
                     }
                 }
-                val book = Book.initLocalBook(url, url, "")
+                val book = Book.initLocalBook(url, url, "", user.id!!)
                 LocalBook.getContent(book, chapterlist[index ?: 0]).toString().let {
                     setBookContentbycache(url, it, index ?: 0,user.id!!)
                     it
@@ -388,7 +394,7 @@ open class ReadController : BaseController() {
         if (book.origin == "loc_book") {
             val list: List<BookChapter> = getChapterListbycache(url!!,user.id!!).let {
                 if (it.first == null){
-                    getlist(url)
+                    getlist(url, user.id!!)
                 }else{
                     it.first!!
                 }
@@ -967,13 +973,23 @@ open class ReadController : BaseController() {
     private val pngDir = FileUtils.createFolderIfNotExist(appCtx.externalFiles, "assets","proxy")
 
     @Mapping("/proxypng")
-    open fun proxypng(ctx: Context, url: String?) = run {
-        //if (accessToken == null) throw DataThrowable().data(JsonResponse(false, NEED_LOGIN))
+    open fun proxypng(ctx: Context, accessToken: String?, url: String?) = run {
+        getuserbytocken(accessToken)
         if (url.isNullOrBlank()) throw DataThrowable().data(JsonResponse(false, NOT_BANK))
         logger.info("proxypng $url")
         val sign = url.md5()
         val valueFile = FileUtils.getFile(pngDir,sign)
+        val typeFile = FileUtils.getFile(pngDir,"$sign.type")
         if(valueFile.exists()) {
+            val contentType = typeFile.takeIf { it.exists() }?.readText()?.trim()
+                ?.takeIf { it.startsWith("image/") }
+                ?: detectImageContentType(valueFile)
+            if (contentType == null) {
+                valueFile.delete()
+                typeFile.delete()
+                throw DataThrowable().data(JsonResponse(false, "缓存内容不是图片"))
+            }
+            ctx.contentType(contentType)
             valueFile.inputStream().use { i ->
                 val b = ByteArray(4096)
                 var len: Int
@@ -984,35 +1000,103 @@ open class ReadController : BaseController() {
             ctx.flush()
         }else{
             val (nurl , headers)=geturlandheader(url)
-            val url = URL(nurl)
-            SslUtils.ignoreSsl();
-            val connection = url.openConnection() as HttpURLConnection
-            connection.setRequestMethod("GET")
-            headers.forEach{(k,v)->
-                connection.setRequestProperty(k,"$v");
-            }
-            val responseCode = connection.getResponseCode();
-            //  读取响应
-            if (responseCode == HttpURLConnection.HTTP_OK) { // 200表示请求成功
-                val bos = ByteArrayOutputStream() //创建输出流对象
-                connection.getInputStream().use {  i ->
-                    val b = ByteArray(4096)
-                    var len: Int
-                    while ((i.read(b).also { len = it }) != -1) {
-                        bos.write(b, 0, len)
-                        ctx.outputStream().write(b, 0, len)
+            var currentUri = validateProxyUri(nurl)
+            var redirects = 0
+            while (true) {
+                val addresses = resolvePublicAddresses(currentUri.host)
+                val client = OkHttpClient.Builder()
+                    .followRedirects(false)
+                    .followSslRedirects(false)
+                    .connectTimeout(20, TimeUnit.SECONDS)
+                    .readTimeout(20, TimeUnit.SECONDS)
+                    .dns(object : Dns {
+                        override fun lookup(hostname: String): List<InetAddress> {
+                            return if (hostname.equals(currentUri.host, ignoreCase = true)) {
+                                addresses
+                            } else {
+                                Dns.SYSTEM.lookup(hostname)
+                            }
+                        }
+                    })
+                    .build()
+                val request = Request.Builder().url(currentUri.toString()).apply {
+                    headers.forEach { (k, v) -> header(k, "$v") }
+                }.build()
+                val response = client.newCall(request).execute()
+                try {
+                    if (response.code in 300..399) {
+                        if (redirects++ >= 5) {
+                            throw DataThrowable().data(JsonResponse(false, "重定向次数过多"))
+                        }
+                        val location = response.header("Location")
+                            ?: throw DataThrowable().data(JsonResponse(false, "重定向地址为空"))
+                        currentUri = validateProxyUri(currentUri.resolve(location).toString())
+                    } else {
+                        if (!response.isSuccessful) {
+                            throw DataThrowable().data(JsonResponse(false, "GET请求失败"))
+                        }
+                        val contentType = response.header("Content-Type")?.substringBefore(';')?.trim()?.lowercase()
+                        if (contentType == null || !contentType.startsWith("image/")) {
+                            throw DataThrowable().data(JsonResponse(false, "仅允许代理图片"))
+                        }
+                        val body = response.body ?: throw DataThrowable().data(JsonResponse(false, "图片响应为空"))
+                        ctx.contentType(contentType)
+                        val bos = ByteArrayOutputStream()
+                        body.byteStream().use { input ->
+                            val buffer = ByteArray(4096)
+                            var len: Int
+                            while ((input.read(buffer).also { len = it }) != -1) {
+                                bos.write(buffer, 0, len)
+                                ctx.outputStream().write(buffer, 0, len)
+                            }
+                        }
+                        valueFile.writeBytes(bos.toByteArray())
+                        typeFile.writeText(contentType)
+                        ctx.flush()
+                        return@run
                     }
+                } finally {
+                    response.close()
                 }
-                valueFile.writeBytes(bos.toByteArray())
-                //ctx.contentType(connection.getHeaderField("Content-Type"))
-                //ctx.output(bos.toByteArray())
-                ctx.flush()
-            } else {
-                logger.info("GET请求失败");
-                JsonResponse(isSuccess = false,errorMsg ="GET请求失败")
             }
         }
+    }
 
+    private fun detectImageContentType(file: java.io.File): String? {
+        return BufferedInputStream(file.inputStream()).use { input ->
+            URLConnection.guessContentTypeFromStream(input)?.takeIf { it.startsWith("image/") }
+        }
+    }
+
+    private fun validateProxyUri(url: String): URI {
+        val parsed = runCatching { URI(url) }
+            .getOrElse { throw DataThrowable().data(JsonResponse(false, "地址无效")) }
+        if (parsed.scheme != "http" && parsed.scheme != "https") {
+            throw DataThrowable().data(JsonResponse(false, "仅允许 http/https 地址"))
+        }
+        if (parsed.host.isNullOrBlank() || parsed.userInfo != null) {
+            throw DataThrowable().data(JsonResponse(false, "地址无效"))
+        }
+        resolvePublicAddresses(parsed.host)
+        return parsed
+    }
+
+    private fun resolvePublicAddresses(host: String): List<InetAddress> {
+        val addresses = runCatching { InetAddress.getAllByName(host).toList() }
+            .getOrElse { throw DataThrowable().data(JsonResponse(false, "地址解析失败")) }
+        if (addresses.isEmpty() || addresses.any(::isPrivateAddress)) {
+            throw DataThrowable().data(JsonResponse(false, "禁止访问内网地址"))
+        }
+        return addresses
+    }
+
+    private fun isPrivateAddress(address: InetAddress): Boolean {
+        if (address.isAnyLocalAddress || address.isLoopbackAddress || address.isLinkLocalAddress ||
+            address.isSiteLocalAddress || address.isMulticastAddress) {
+            return true
+        }
+        val bytes = address.address
+        return bytes.size == 16 && (bytes[0].toInt() and 0xfe) == 0xfc
     }
 
 

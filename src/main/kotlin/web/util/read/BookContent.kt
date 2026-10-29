@@ -13,6 +13,7 @@ import web.controller.api.ReadController.Companion.getChapterListbycache
 import web.controller.api.ReadController.Companion.setBookContentbycache
 import web.model.BaseSource
 import web.model.Users
+import web.util.BigDataHelp
 import web.util.mapper.mapper
 
 object  BookContent {
@@ -66,7 +67,15 @@ object  BookContent {
             }
         }
         val nexturl=if(index+1 < chapterlist.size) chapterlist[index+1].url else ""
-        return webBook.getBookContent(book,chapterlist[index],nexturl)
+        val chapter = chapterlist[index]
+        val oldTitle = chapter.title
+        val oldImgUrl = chapter.imgUrl
+        val oldVariable = chapter.variable
+        val content = webBook.getBookContent(book, chapter, nexturl)
+        if (chapter.title != oldTitle || chapter.imgUrl != oldImgUrl || chapter.variable != oldVariable) {
+            BigDataHelp.updateChapterMetadata(url, user.id!!, chapter)
+        }
+        return content
     }
 
 

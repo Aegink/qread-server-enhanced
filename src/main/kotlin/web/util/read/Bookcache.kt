@@ -14,6 +14,7 @@ import web.controller.api.ReadController.Companion.getChapterListbycache
 import web.model.BaseSource
 import web.model.BookCache
 import web.model.Users
+import web.util.BigDataHelp
 import web.util.mapper.mapper
 import kotlin.concurrent.thread
 
@@ -126,9 +127,9 @@ object Bookcache {
                         val url=book.bookUrl?:" "
                         var (chapterlist,timeout) = getChapterListbycache(url,user.id!!)
                         if (chapterlist == null || timeout) {
-                            chapterlist = getlist(url)
+                            chapterlist = getlist(url, user.id!!)
                         }
-                        val b = Book.initLocalBook(url, url, "")
+                        val b = Book.initLocalBook(url, url, "", user.id!!)
                         re= LocalBook.getContent(b, chapterlist[x]).toString()
                     }
                 }
@@ -164,7 +165,15 @@ object Bookcache {
         val webBook = WBook(source.json,user.id!!,accessToken, false)
         val book = getbook(accessToken,user,source,url)
         val nexturl=if(index+1 < chapterlist.size) chapterlist[index+1].url else ""
-        return webBook.getBookContent(book,chapterlist[index],nexturl)
+        val chapter = chapterlist[index]
+        val oldTitle = chapter.title
+        val oldImgUrl = chapter.imgUrl
+        val oldVariable = chapter.variable
+        val content = webBook.getBookContent(book, chapter, nexturl)
+        if (chapter.title != oldTitle || chapter.imgUrl != oldImgUrl || chapter.variable != oldVariable) {
+            BigDataHelp.updateChapterMetadata(url, user.id!!, chapter)
+        }
+        return content
     }
 
 }

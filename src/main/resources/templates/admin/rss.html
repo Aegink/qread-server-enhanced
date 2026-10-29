@@ -135,6 +135,7 @@
     upload.render({
       elem: '#upload', // 绑定多个元素
       url: '/admin/uploadRssSource', // 此处配置你自己的上传接口即可
+      headers: {'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content},
       accept: 'file', // 普通文件
       done: function(res){
         layer.msg(res.errorMsg);

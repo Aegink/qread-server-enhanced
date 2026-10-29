@@ -43,7 +43,7 @@ class InitConfig {
                 logger.info("startBrowser ,url: $urlStr ,title: $title, tocken: $tocken ")
                 socket.send(Gson().toJson(WebMessage(msg = "startBrowser", url = urlStr,title=title,id=id, header = header, body = name )))
                 kotlin.runCatching {
-                    val rez= GSON.fromJson(ApiWebSocket.WaitForResponse(id), StartBrowserRe::class.java)
+                    val rez= GSON.fromJson(ApiWebSocket.WaitForResponse(id, tocken), StartBrowserRe::class.java)
                     return@runBlocking  StrResponse(rez.url,rez.html)
                 }
             }
@@ -75,25 +75,25 @@ class InitConfig {
             }
         }
 
-        App.webview=fun (html: String?, url: String?, js: String?, tocken:String, header:String,urlregex:String,overrideUrlRegex:String):StrResponse = runBlocking{
+        App.webview=fun (html: String?, url: String?, js: String?, tocken:String, header:String,urlregex:String,overrideUrlRegex:String,delayTime:Long):StrResponse = runBlocking{
             if(url.isNullOrBlank() && html.isNullOrBlank())  return@runBlocking  StrResponse(url?:"","")
             val socket=ApiWebSocket.get(tocken)
             if(socket!=null){
                 val id= UUID.randomUUID().toString()
                 //logger.info("webview ,url: $url ,js: $js, html:$html, tocken: $tocken ")
-                socket.send(Gson().toJson(WebMessage(msg = "webview", url = url?:"",title=js?:"", html = html?:"" ,id=id ,header=header,urlregex=urlregex,overrideUrlRegex=overrideUrlRegex)))
-                return@runBlocking  StrResponse(url?:"",ApiWebSocket.WaitForResponse(id)?:"")
+                socket.send(Gson().toJson(WebMessage(msg = "webview", url = url?:"",title=js?:"", html = html?:"" ,id=id ,header=header,urlregex=urlregex,overrideUrlRegex=overrideUrlRegex,delayTime=delayTime)))
+                return@runBlocking  StrResponse(url?:"",ApiWebSocket.WaitForResponse(id, tocken)?:"")
             }
             return@runBlocking  StrResponse(url?:"","")
         }
-        App.webviewbody=fun (html: String?, url: String?, js: String?, tocken:String, header:String, body:String,urlregex:String,overrideUrlRegex:String):StrResponse = runBlocking{
+        App.webviewbody=fun (html: String?, url: String?, js: String?, tocken:String, header:String, body:String,urlregex:String,overrideUrlRegex:String,delayTime:Long):StrResponse = runBlocking{
             if(url.isNullOrBlank() && html.isNullOrBlank())  return@runBlocking  StrResponse(url?:"","")
             val socket=ApiWebSocket.get(tocken)
             if(socket!=null){
                 val id= UUID.randomUUID().toString()
                 //logger.info("webview ,url: $url ,js: $js, html:$html, tocken: $tocken ")
-                socket.send(Gson().toJson(WebMessage(msg = "webview", url = url?:"",title=js?:"", html = html?:"" ,id=id ,header=header,body=body,urlregex=urlregex,overrideUrlRegex=overrideUrlRegex)))
-                return@runBlocking  StrResponse(url?:"",ApiWebSocket.WaitForResponse(id)?:"")
+                socket.send(Gson().toJson(WebMessage(msg = "webview", url = url?:"",title=js?:"", html = html?:"" ,id=id ,header=header,body=body,urlregex=urlregex,overrideUrlRegex=overrideUrlRegex,delayTime=delayTime)))
+                return@runBlocking  StrResponse(url?:"",ApiWebSocket.WaitForResponse(id, tocken)?:"")
             }
             return@runBlocking  StrResponse(url?:"","")
         }
@@ -105,7 +105,7 @@ class InitConfig {
                     msg = "getVerificationCode", url = url , id = id,
                     title = "getVerificationCode",
                 )))
-                return@runBlocking ApiWebSocket.WaitForResponse(id)?:""
+                return@runBlocking ApiWebSocket.WaitForResponse(id, tocken)?:""
             }
             ""
         }
@@ -117,7 +117,7 @@ class InitConfig {
                     msg = "getVerificationCodeusePhone", url = url , id = id,
                     title = "getVerificationCodeusePhone",header = header,
                 )))
-                return@runBlocking ApiWebSocket.WaitForResponse(id)?:""
+                return@runBlocking ApiWebSocket.WaitForResponse(id, tocken)?:""
             }
             ""
         }
@@ -152,7 +152,7 @@ class InitConfig {
                     msg = "getWebViewUA", url = "", id = id,
                     title = "getWebViewUA",
                 )))
-                return@runBlocking ApiWebSocket.WaitForResponse(id)?:""
+                return@runBlocking ApiWebSocket.WaitForResponse(id, tocken)?:""
             }
             AppConst.defaultuserAgent
         }
@@ -166,7 +166,7 @@ class InitConfig {
                     msg = "head", url = url ?: "", id = id, header = header,
                     title ="$move"
                 )))
-                val json=ApiWebSocket.WaitForResponse(id)?:""
+                val json=ApiWebSocket.WaitForResponse(id, tocken)?:""
                 kotlin.runCatching {
                     val re= GSON.fromJson(json, MyResponse::class.java)
                     return@runBlocking  re.tojsonresponse()
@@ -188,7 +188,7 @@ class InitConfig {
                     msg = "get", url = url ?: "", id = id, header = header,
                     title ="$move"
                 )))
-                val json=ApiWebSocket.WaitForResponse(id)?:""
+                val json=ApiWebSocket.WaitForResponse(id, tocken)?:""
                 kotlin.runCatching {
                     val re= GSON.fromJson(json, MyResponse::class.java)
                     return@runBlocking  re.tojsonresponse()
@@ -207,7 +207,7 @@ class InitConfig {
                 val id= UUID.randomUUID().toString()
                 //logger.info("webview ,url: $url ,js: $js, html:$html, tocken: $tocken ")
                 socket.send(Gson().toJson(WebMessage(msg = "post", url = url?:"",id=id ,header=header,body=body,title = "$move")))
-                val json=ApiWebSocket.WaitForResponse(id)?:""
+                val json=ApiWebSocket.WaitForResponse(id, tocken)?:""
                 kotlin.runCatching {
                     val re= GSON.fromJson(json, MyResponse::class.java)
                     return@runBlocking  re.tojsonresponse()
