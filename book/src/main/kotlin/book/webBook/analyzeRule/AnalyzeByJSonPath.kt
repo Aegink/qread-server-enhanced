@@ -132,7 +132,9 @@ class AnalyzeByJSonPath(json: Any) {
         if (rules.size == 1) {
             ctx.let {
                 try {
-                    return it.read<ArrayList<Any>>(rules[0])
+                    // 与 LegadoTeam/legado 对齐：JsonPath 可能返回非 ArrayList 的 List（list-backed 结果），
+                    // 硬转 ArrayList 会抛异常并被静默吞掉，表现为"规则正确但列表为空"
+                    return ArrayList(it.read<List<Any>>(rules[0]))
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
