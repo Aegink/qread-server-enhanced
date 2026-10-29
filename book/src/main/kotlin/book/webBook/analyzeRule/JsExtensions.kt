@@ -32,6 +32,12 @@ import java.time.LocalDateTime
 import kotlin.collections.set
 import kotlin.concurrent.thread
 
+import book.util.help.SourceLock
+import org.mozilla.javascript.Context
+import org.mozilla.javascript.Function
+import org.mozilla.javascript.Scriptable
+import org.mozilla.javascript.ScriptableObject
+import org.mozilla.javascript.Undefined
 /**
  * js扩展类, 在js中通过java变量调用
  * 所有对于文件的读写删操作都是相对路径,只能操作阅读缓存内的文件
@@ -47,6 +53,34 @@ interface JsExtensions: JsEncodeUtils  {
     fun getSource(): BaseSource?
 
     fun getTag(): String? = getSource()?.getTag()
+
+    // ---- 书源级并发工具（对齐 LegadoTeam/legado 的 SourceLock 系列，默认等待 15s） ----
+
+    /** 同一书源同一名字的调用计数，自增后返回（`java.tick('name')`）。 */
+    fun tick(name: String): Int = SourceLock.tick(sourceConcurrencyKey(name))
+
+    /** 同一书源同一名字互斥执行（`java.lock('name', function(){...})`）。 */
+    fun lock(name: String, action: Function) = lock(name, action, 15_000L)
+
+    fun lock(name: String, action: Function, timeoutMs: Long) {
+        SourceLock.lock(sourceConcurrencyKey(name), timeoutMs) { invokeJsFunction(action) }
+    }
+
+    /** 同一书源同一名字同时只执行一个，等待窗口内重复调用直接被跳过。 */
+    fun singleFlight(name: String, action: Function) = singleFlight(name, action, 15_000L)
+
+    fun singleFlight(name: String, action: Function, timeoutMs: Long) {
+        SourceLock.singleFlight(sourceConcurrencyKey(name), timeoutMs) { invokeJsFunction(action) }
+    }
+
+    fun sourceConcurrencyKey(name: String): String {
+        if (name.isBlank() || name.length > 256) {
+            throw NoStackTraceException("java.lock/tick 的 name 不能为空且长度不能超过 256")
+        }
+        val sourceKey = getSource()?.getKey()
+            ?: throw NoStackTraceException("java.lock/tick 只能在书源、订阅源中使用")
+        return "$sourceKey@$name"
+    }
 
     fun androidId(): String {
         return md5Encode(getSource()?.userid?:"")
@@ -1218,4 +1252,15 @@ interface JsExtensions: JsEncodeUtils  {
 
 
 
+}
+
+/**
+ * 在 Rhino 当前上下文里执行书源传入的函数（`java.lock` / `java.singleFlight` 的 action）。
+ */
+internal fun invokeJsFunction(action: Function) {
+    val cx = Context.getCurrentContext() ?: Context.enter()
+    val parentScope = action.parentScope
+    val thisObj: Scriptable = parentScope?.let { ScriptableObject.getTopLevelScope(it) }
+        ?: Undefined.SCRIPTABLE_UNDEFINED
+    action.call(cx, parentScope, thisObj, emptyArray())
 }
