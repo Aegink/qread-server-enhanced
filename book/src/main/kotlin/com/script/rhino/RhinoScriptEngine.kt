@@ -150,7 +150,7 @@ object RhinoScriptEngine : AbstractScriptEngine(), Invocable, Compilable {
     override suspend fun evalSuspend(reader: Reader, scope: Scriptable): Any? {
         val cx = Context.enter()
         var ret: Any?
-        withContext(VMBridgeReflect.contextLocal.asContextElement()) {
+        withContext(RhinoContextElement(cx)) {
             try {
                 var filename = this@RhinoScriptEngine["javax.script.filename"] as? String
                 filename = filename ?: "<Unknown source>"

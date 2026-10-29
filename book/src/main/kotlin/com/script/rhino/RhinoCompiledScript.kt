@@ -125,7 +125,7 @@ internal class RhinoCompiledScript(
     override suspend fun evalSuspend(scope: Scriptable): Any? {
         val cx = Context.enter()
         var ret: Any?
-        withContext(VMBridgeReflect.contextLocal.asContextElement()) {
+        withContext(RhinoContextElement(cx)) {
             try {
                 try {
                     ret = cx.executeScriptWithContinuations(script, scope)
