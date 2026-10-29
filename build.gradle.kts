@@ -71,7 +71,7 @@ dependencies {
 
 
     //数据库
-    implementation("com.mysql:mysql-connector-j:9.1.0")
+    implementation("com.mysql:mysql-connector-j:26.10.0")
     implementation("org.xerial:sqlite-jdbc:3.54.1.0")
     implementation("com.baomidou:mybatis-plus-solon-plugin:3.5.17")
     implementation("com.baomidou:mybatis-plus-jsqlparser-4.9:3.5.17")
@@ -119,6 +119,10 @@ tasks {
     val copyDependencies by registering(Copy::class) {
         from(configurations.runtimeClasspath)
         into(libsDir)
+        // 依赖升级后旧版本 jar 会残留在 libs/ 里（例如同时存在两个 mysql 驱动），先清空再拷
+        doFirst {
+            delete(fileTree(libsDir) { include("*.jar") })
+        }
     }
 
     val classPathEntries = configurations.runtimeClasspath.get()

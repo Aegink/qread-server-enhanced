@@ -1,6 +1,7 @@
 package book.webBook
 
 import book.model.BookSource
+import book.util.GSON
 import book.webBook.analyzeRule.AnalyzeUrl
 import com.sun.net.httpserver.HttpServer
 import java.io.File
@@ -72,4 +73,70 @@ class RealWorldSourceRegressionTest {
             (server.executor as? java.util.concurrent.ExecutorService)?.shutdownNow()
         }
     }
+
+    @Test
+    fun ruleFieldsSurviveJsonRoundTrip() {
+        shippedSources().forEach { (name, source) ->
+            val json = GSON.toJson(source)
+            val restored = BookSource.fromJson(json).getOrThrow()
+            assertEquals(source.bookSourceName, restored.bookSourceName, "$name 往返后名称变化")
+            assertEquals(source.bookSourceUrl, restored.bookSourceUrl, "$name 往返后地址变化")
+            assertEquals(source.searchUrl, restored.searchUrl, "$name 往返后搜索地址变化")
+            assertEquals(
+                source.ruleToc?.chapterList,
+                restored.ruleToc?.chapterList,
+                "$name 往返后目录规则变化"
+            )
+            assertEquals(
+                source.ruleContent?.content,
+                restored.ruleContent?.content,
+                "$name 往返后正文规则变化"
+            )
+        }
+    }
+
+    @Test
+    fun ruleStringsStayRecognizable() {
+        // 书源规则必须能看出模式（CSS / XPath / JSONPath / JS / 正则），
+        // 反序列化把规则揉坏时这里会报警
+        val markers = listOf(".", "#", "//", "$.", "@", "##", "<js>", "@js:", "{{")
+        // legado 允许裸属性/裸取值规则，如 chapterName="text"、chapterUrl="href"
+        val bareRule = Regex("^[A-Za-z][A-Za-z0-9_:.-]{0,30}$")
+
+        shippedSources().forEach { (name, source) ->
+            val rules = buildList {
+                add(source.searchUrl)
+                source.ruleSearch?.let {
+                    add(it.bookList); add(it.name); add(it.author); add(it.bookUrl)
+                }
+                source.ruleBookInfo?.let {
+                    add(it.name); add(it.intro); add(it.tocUrl)
+                }
+                source.ruleToc?.let {
+                    add(it.chapterList); add(it.chapterName); add(it.chapterUrl)
+                }
+                source.ruleContent?.let { add(it.content) }
+            }.filterNotNull().filter { it.isNotBlank() }
+
+            assertTrue(rules.isNotEmpty(), "$name 没有任何可识别的规则")
+            rules.forEach { rule ->
+                assertTrue(
+                    markers.any { rule.contains(it) } || bareRule.matches(rule),
+                    "$name 的规则片段看不出模式: $rule"
+                )
+            }
+        }
+    }
+
+    private fun shippedSources(): List<Pair<String, BookSource>> =
+        listOf(
+            "69主站.json",
+            "天天看小说.json",
+            "霹雳书屋.json",
+            "本地书仓.json",
+            "本地书仓支持分页版.json"
+        ).flatMap { name ->
+            val file = File(projectRoot, name)
+            BookSource.fromJsonArray(file.readText()).getOrThrow().map { name to it }
+        }
 }
