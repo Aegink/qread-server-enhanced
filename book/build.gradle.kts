@@ -2,7 +2,7 @@ plugins {
     kotlin("jvm")
 }
 
-val kotlin_version: String ="2.1.0"
+val kotlin_version: String ="2.4.21"
 group = "read"
 version = "1.0-SNAPSHOT"
 
@@ -12,12 +12,12 @@ repositories {
 
 dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
 
     // 规则相关
     implementation("org.jsoup:jsoup:1.23.2")
     implementation("cn.wanghaomiao:JsoupXpath:2.5.3")
-    implementation("com.jayway.jsonpath:json-path:2.9.0")
+    implementation("com.jayway.jsonpath:json-path:3.0.0")
 
     // json
     implementation("com.google.code.gson:gson:2.15.0")
@@ -33,8 +33,8 @@ dependencies {
     implementation("org.bouncycastle:bcpkix-jdk18on:1.86")
 
     // 网络
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.1")
+    implementation("com.squareup.okhttp3:logging-interceptor:5.5.1")
 
     //加解密类库
     implementation("cn.hutool:hutool-crypto:5.8.22")
@@ -60,6 +60,8 @@ sourceSets {
 
 tasks.test {
     useJUnitPlatform()
+    maxHeapSize = "768m"
+    maxParallelForks = 1
 }
 kotlin {
     jvmToolchain(21)

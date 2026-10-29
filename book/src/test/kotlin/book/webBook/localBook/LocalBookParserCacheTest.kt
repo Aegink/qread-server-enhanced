@@ -134,8 +134,8 @@ class LocalBookParserCacheTest {
         userid = userid
     )
 
-    @Suppress("DEPRECATION")
-    private fun createTempFile(): File = kotlin.io.createTempFile("local-book-cache-", ".epub").apply {
+    private fun createTempFile(): File = File.createTempFile("local-book-cache-", ".epub").apply {
         writeText("initial")
+        deleteOnExit()
     }
 }

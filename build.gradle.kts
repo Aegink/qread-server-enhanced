@@ -1,13 +1,13 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-    kotlin("jvm") version "2.1.0"
+    kotlin("jvm") version "2.4.21"
     id("application")
 }
 
 group = "read"
 version = "1.0-SNAPSHOT"
-val kotlin_version: String ="2.1.0"
+val kotlin_version: String ="2.4.21"
 val mainClassName: String ="web.AppKt"
 val libsDir = "libs"
 
@@ -24,8 +24,8 @@ repositories {
 configurations.all {
     resolutionStrategy {
         force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version")
-        force("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
-        force("com.fasterxml.jackson.module:jackson-module-kotlin:2.13.5")
+        force("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+        // force("com.fasterxml.jackson.module:jackson-module-kotlin:2.13.5")  已解除：Kotlin 2.4 下让 Gradle 解析到兼容版本
         force("org.slf4j:slf4j-api:2.0.16")
     }
 }
@@ -34,7 +34,7 @@ dependencies {
     implementation(project(":book"))
     implementation("org.slf4j:slf4j-api:2.0.16")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
 
     implementation("javax.mail:mail:1.4.7")
 
@@ -88,8 +88,8 @@ dependencies {
 
 
     // 网络
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.1")
+    implementation("com.squareup.okhttp3:logging-interceptor:5.5.1")
 
     implementation("org.apache.xmlgraphics:fop:2.11")
     implementation("org.apache.xmlgraphics:batik-all:1.19")
@@ -107,6 +107,9 @@ tasks.withType<KotlinCompile> {
 
 tasks.test {
     useJUnitPlatform()
+    // 测试 JVM 固定小堆 + 单 fork：本机内存紧张时 Gradle 会一次起多个 worker 导致 native malloc 失败
+    maxHeapSize = "768m"
+    maxParallelForks = 1
 }
 
 tasks {
