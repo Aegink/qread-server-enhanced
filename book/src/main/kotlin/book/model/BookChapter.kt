@@ -25,11 +25,15 @@ data class BookChapter(
     var end: Long? = null,               // 章节终止位置
     var startFragmentId: String? = null,  //EPUB书籍当前章节的fragmentId
     var endFragmentId: String? = null,    //EPUB书籍下一章节的fragmentId
+    var imgUrl: String? = null,            // 标题段评图或视频封面
     @Expose(serialize = false, deserialize = false)
     var variable: String? = null ,       //变量
     var lastCheckTime: Long? = null,
     override var userid: String = ""
 ): RuleDataInterface {
+    @Transient
+    var titleMD5: String? = null
+
     override fun toString(): String {
         val hashCode = this.hashCode()
         val hexHash = Integer.toHexString(hashCode)
@@ -50,6 +54,14 @@ data class BookChapter(
             variable = GSON.toJson(variableMap)
         }
         return true
+    }
+
+    fun putLyric(value: String?) {
+        putVariable("lyric", value)
+    }
+
+    fun putDanmaku(value: String?) {
+        putVariable("danmaku", value)
     }
 
 

@@ -66,11 +66,12 @@ data class Book(
         const val imgStyleFull = "FULL"
         const val imgStyleText = "TEXT"
 
-        fun initLocalBook(bookUrl: String, localPath: String, rootDir: String = ""): Book {
+        fun initLocalBook(bookUrl: String, localPath: String, rootDir: String = "", userid: String = ""): Book {
             val fileName = File(localPath).name
             val nameAuthor = LocalBook.analyzeNameAuthor(fileName)
             val book = Book(bookUrl, "", BookType.local, localPath, nameAuthor.first, nameAuthor.second).also {
                 it.canUpdate = false
+                it.userid = userid
             }
             book.setRootDir(rootDir)
             book.updateFromLocal()
@@ -103,6 +104,10 @@ data class Book(
         RuleBigDataHelp.putBookVariable(bookUrl,userid, "reverseToc", "$z")
     }
 
+    fun setSplitLongChapter(splitLongChapter: Boolean) {
+        config().splitLongChapter = splitLongChapter
+    }
+
     fun getReverseToc(): Boolean {
         runCatching {
             val z= RuleBigDataHelp.getBookVariable(bookUrl,userid, "reverseToc")
@@ -123,8 +128,28 @@ data class Book(
         return originName.endsWith(".umd", true)
     }
 
+    fun isMobi(): Boolean {
+        return isLocalBook() && (
+            originName.endsWith(".mobi", true) ||
+                originName.endsWith(".azw3", true) ||
+                originName.endsWith(".azw", true)
+            )
+    }
+
+    fun isPdf(): Boolean {
+        return isLocalBook() && originName.endsWith(".pdf", true)
+    }
+
     fun isOnLineTxt(): Boolean {
         return !isLocalBook() && type == 0
+    }
+
+    fun isAudio(): Boolean {
+        return type == BookType.audio
+    }
+
+    fun isVideo(): Boolean {
+        return type == BookType.video
     }
 
     override fun equals(other: Any?): Boolean {
@@ -229,7 +254,7 @@ data class Book(
     }
 
     fun getSplitLongChapter(): Boolean {
-        return false
+        return config().splitLongChapter
     }
 
 
@@ -289,13 +314,7 @@ data class Book(
 
     fun updateFromLocal(onlyCover: Boolean = false) {
         try {
-            if (isEpub()) {
-                EpubFile.upBookInfo(this, onlyCover)
-            } else if (isUmd()) {
-                UmdFile.upBookInfo(this, onlyCover)
-            } else if (isCbz()) {
-                CbzFile.upBookInfo(this, onlyCover)
-            }
+            LocalBook.upBookInfo(this, onlyCover)
         } catch(e: Exception) {
             e.printStackTrace()
         }
@@ -311,6 +330,7 @@ data class Book(
         var reSegment: Boolean = false,
         var imageStyle: String? = null,
         var useReplaceRule: Boolean = false,   // 正文使用净化替换规则
+        var splitLongChapter: Boolean = false, // 是否拆分过长章节
         var delTag: Long = 0L   //去除标签
     )
 

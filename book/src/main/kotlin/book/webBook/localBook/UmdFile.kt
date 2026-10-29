@@ -7,50 +7,33 @@ import book.util.MD5Utils
 import me.ag2s.umdlib.domain.UmdBook
 import me.ag2s.umdlib.umd.UmdReader
 import java.io.File
-import java.io.InputStream
 import java.util.*
 import java.nio.file.Paths
 
-class UmdFile(var book: Book) {
+class UmdFile(override var book: Book) : CachedLocalBookParser {
     companion object {
-        private var uFile: UmdFile? = null
+        private val parserCache = LocalBookParserCache(8, ::UmdFile)
 
-        @Synchronized
-        private fun getUFile(book: Book): UmdFile {
-
-            if (uFile == null || uFile?.book?.bookUrl != book.bookUrl) {
-                uFile = UmdFile(book)
-                return uFile!!
-            }
-            uFile?.book = book
-            return uFile!!
-        }
-
-        @Synchronized
         fun getChapterList(book: Book): ArrayList<BookChapter> {
-            return getUFile(book).getChapterList()
+            return parserCache.withParser(book) { it.getChapterList() }
         }
 
-        @Synchronized
         fun getContent(book: Book, chapter: BookChapter): String? {
-            return getUFile(book).getContent(chapter)
+            return parserCache.withParser(book) { it.getContent(chapter) }
         }
 
-        @Synchronized
-        fun getImage(
-            book: Book,
-            href: String
-        ): InputStream? {
-            return getUFile(book).getImage(href)
-        }
-
-
-        @Synchronized
         fun upBookInfo(book: Book, onlyCover: Boolean = false) {
-            if (onlyCover) {
-                return getUFile(book).updateCover()
+            parserCache.withParser(book) {
+                if (onlyCover) {
+                    it.updateCover()
+                } else {
+                    it.upBookInfo()
+                }
             }
-            return getUFile(book).upBookInfo()
+        }
+
+        fun remove(book: Book) {
+            parserCache.remove(book)
         }
     }
 
@@ -65,34 +48,15 @@ class UmdFile(var book: Book) {
         }
 
 
-    init {
-        try {
-            umdBook?.let {
-                // if (book.coverUrl.isNullOrEmpty()) {
-                //     book.coverUrl = FileUtils.getPath(
-                //         appCtx.externalFiles,
-                //         "covers",
-                //         "${MD5Utils.md5Encode16(book.bookUrl)}.jpg"
-                //     )
-                // }
-                // if (!File(book.coverUrl!!).exists()) {
-                //     FileUtils.writeBytes(book.coverUrl!!, it.cover.coverData)
-
-                // }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
     private fun readUmd(): UmdBook? {
-        val input = File(book.bookUrl).inputStream()
-        return UmdReader().read(input)
+        return LocalBook.getBookInputStream(book).use { input ->
+            UmdReader().read(input)
+        }
     }
 
     private fun upBookInfo() {
         if (umdBook == null) {
-            uFile = null
+            parserCache.remove(book)
             book.intro = "书籍导入异常"
         } else {
             val hd = umdBook!!.header
@@ -106,7 +70,7 @@ class UmdFile(var book: Book) {
 
     private fun updateCover() {
         if (umdBook == null) {
-            uFile = null
+            parserCache.remove(book)
             return
         }
         val coverFile = "${MD5Utils.md5Encode16(book.bookUrl)}.jpg"
@@ -131,16 +95,11 @@ class UmdFile(var book: Book) {
             chapter.index = index
             chapter.bookUrl = book.bookUrl
             chapter.url = index.toString()
-            System.out.println("UMD" + chapter.url)
             chapterList.add(chapter)
         }
         book.latestChapterTitle = chapterList.lastOrNull()?.title
         book.totalChapterNum = chapterList.size
         return chapterList
-    }
-
-    private fun getImage(@Suppress("UNUSED_PARAMETER") href: String): InputStream? {
-        return null
     }
 
 }

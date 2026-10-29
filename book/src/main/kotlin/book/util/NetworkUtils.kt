@@ -11,6 +11,23 @@ import java.util.*
 import java.util.regex.Pattern
 
 object NetworkUtils {
+    private val notNeedEncodingQuery: BitSet by lazy {
+        encodingBitSet("!$&()*+,-./:;=?@[\\]^_`{|}~")
+    }
+
+    private val notNeedEncodingForm: BitSet by lazy {
+        encodingBitSet("*-._")
+    }
+
+    private fun encodingBitSet(extraChars: String): BitSet {
+        return BitSet(256).apply {
+            for (i in 'a'.code..'z'.code) set(i)
+            for (i in 'A'.code..'Z'.code) set(i)
+            for (i in '0'.code..'9'.code) set(i)
+            extraChars.forEach { set(it.code) }
+        }
+    }
+
     fun getUrl(response: Response<*>): String {
         val networkResponse = response.raw().networkResponse
         return networkResponse?.request?.url?.toString()
@@ -64,6 +81,29 @@ object NetworkUtils {
         }
 
         return !needEncode
+    }
+
+    fun encodedQuery(str: String): Boolean = isEncoded(str, notNeedEncodingQuery)
+
+    fun encodedForm(str: String): Boolean = isEncoded(str, notNeedEncodingForm)
+
+    private fun isEncoded(str: String, allowed: BitSet): Boolean {
+        var index = 0
+        while (index < str.length) {
+            val char = str[index]
+            if (char.code < 256 && allowed.get(char.code)) {
+                index++
+                continue
+            }
+            if (char == '%' && index + 2 < str.length &&
+                isDigit16Char(str[index + 1]) && isDigit16Char(str[index + 2])
+            ) {
+                index += 3
+                continue
+            }
+            return false
+        }
+        return true
     }
 
     /**

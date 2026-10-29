@@ -18,10 +18,10 @@ object App  {
     var startBrowserdp =fun  (urlStr: String,title: String,tocken:String,header:String) {
 
     }
-    var webview =fun  (html: String?, url: String?, js: String?,tocken:String,header:String,urlregex:String,overrideUrlRegex:String):StrResponse{
+    var webview =fun  (html: String?, url: String?, js: String?,tocken:String,header:String,urlregex:String,overrideUrlRegex:String,delayTime:Long):StrResponse{
         return StrResponse(url?:"", "")
     }
-    var webviewbody =fun  (html: String?, url: String?, js: String?,tocken:String,header:String,body:String,urlregex:String,overrideUrlRegex:String):StrResponse{
+    var webviewbody =fun  (html: String?, url: String?, js: String?,tocken:String,header:String,body:String,urlregex:String,overrideUrlRegex:String,delayTime:Long):StrResponse{
         return StrResponse(url?:"", "")
     }
     var toast =fun  (str: String,tocken:String){
@@ -114,4 +114,3 @@ object App  {
 
     }
 }
-

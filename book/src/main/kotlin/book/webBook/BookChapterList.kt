@@ -14,6 +14,8 @@ import book.util.isTrue
 import book.webBook.analyzeRule.AnalyzeRule
 import book.webBook.analyzeRule.AnalyzeUrl
 import book.webBook.exception.TocEmptyException
+import com.script.buildScriptBindings
+import com.script.rhino.RhinoScriptEngine
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.async
@@ -104,19 +106,12 @@ object BookChapterList {
         if (chapterList.isEmpty()) {
             throw TocEmptyException("目录为空")
         }
-        //去重
-        if (!reverse) {
-            chapterList.reverse()
-        }
-        val lh = LinkedHashSet(chapterList)
-        val list = ArrayList(lh)
-        // if (!book.getReverseToc()) {
-        list.reverse()
-        // }
+        val list = normalizeChapterOrder(chapterList, reverse, book.getReverseToc())
         debugLog?.log(book.origin, "◇目录总数:${list.size}")
         list.forEachIndexed { index, bookChapter ->
             bookChapter.index = index
         }
+        formatChapterTitles(list, tocRule, bookSource, book, debugLog)
         if (list.size > 0) {
             book.latestChapterTitle = list.last().title
         }
@@ -131,6 +126,53 @@ object BookChapterList {
         return list
     }
 
+    internal fun normalizeChapterOrder(
+        chapters: List<BookChapter>,
+        sourceIsReversed: Boolean,
+        userRequestsReverse: Boolean
+    ): ArrayList<BookChapter> {
+        val ordered = ArrayList(chapters)
+        if (!sourceIsReversed) ordered.reverse()
+        val unique = ArrayList(LinkedHashSet(ordered))
+        if (!userRequestsReverse) unique.reverse()
+        return unique
+    }
+
+    internal fun formatChapterTitles(
+        chapters: List<BookChapter>,
+        tocRule: TocRule,
+        bookSource: BookSource,
+        book: Book,
+        debugLog: DebugLog? = null
+    ) {
+        val formatJs = tocRule.formatJs?.takeIf { it.isNotBlank() } ?: return
+        val bindings = buildScriptBindings { bindings ->
+            bindings.put("java", bookSource)
+            bindings.put("source", bookSource)
+            bindings.put("baseUrl", bookSource.getKey())
+            bindings.put("cookie", bookSource.getCookieManger())
+            bindings.put("cache", bookSource.getCacheManger())
+            bindings.put("book", book)
+            bindings.put("gInt", 0)
+            bookSource.binding(bindings)
+        }
+        bookSource.getShareScope()?.let { bindings.prototype = it }
+        chapters.forEachIndexed { index, chapter ->
+            bindings["index"] = index + 1
+            bindings["chapter"] = chapter
+            bindings["title"] = chapter.title
+            runCatching {
+                RhinoScriptEngine.eval(bookSource.getjs(formatJs), bindings)?.toString()
+            }.onSuccess { formatted ->
+                if (formatted != null) chapter.title = formatted
+            }.onFailure { error ->
+                val message = error.localizedMessage ?: error.javaClass.simpleName
+                debugLog?.log(book.origin, "格式化标题出错: $message")
+                bookSource.logger.warn("书源 {} 格式化章节标题失败: {}", bookSource.bookSourceName, message)
+            }
+        }
+    }
+
     private fun analyzeChapterList(
         book: Book,
         baseUrl: String,
@@ -143,7 +185,7 @@ object BookChapterList {
         log: Boolean = false,
         debugLog: DebugLog? = null
     ): Pair<List<BookChapter>, List<String>>  {
-        val analyzeRule = AnalyzeRule(book,debugLog, bookSource,)
+        val analyzeRule = AnalyzeRule(book,debugLog, bookSource,).setRuleType("TOC")
         analyzeRule.setContent(body).setBaseUrl(baseUrl)
         analyzeRule.setRedirectUrl(redirectUrl)
         //获取目录列表

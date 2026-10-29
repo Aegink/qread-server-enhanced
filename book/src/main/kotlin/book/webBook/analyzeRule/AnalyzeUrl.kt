@@ -13,19 +13,26 @@ import book.util.help.CacheManager
 import book.util.help.cookieJarHeader
 import book.util.http.*
 import book.webBook.DebugLog
+import cn.hutool.core.codec.PercentCodec
+import cn.hutool.core.net.RFC3986
 import com.script.buildScriptBindings
 import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.ResponseBody.Companion.toResponseBody
+import java.net.URI
 import java.net.URLEncoder
+import java.nio.charset.Charset
 import java.util.regex.Pattern
 import com.script.rhino.RhinoScriptEngine
+import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Response
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.io.ByteArrayInputStream
 import java.io.InputStream
+import java.net.InetAddress
 import java.util.*
 import java.util.concurrent.TimeUnit
 import kotlin.collections.HashMap
@@ -50,13 +57,32 @@ class AnalyzeUrl(
     private var coroutineContext: CoroutineContext = EmptyCoroutineContext,
     headerMapF: Map<String, String>? = null,
     val needanalyzeUrl :Boolean=true,
-    override  var debugLog: DebugLog?,hasLoginHeader: Boolean = true
+    override var debugLog: DebugLog?,
+    hasLoginHeader: Boolean = true,
+    private val callTimeout: Long? = null,
+    private val infoMap: MutableMap<String, String>? = null
 ) :JsExtensions {
 
     companion object {
         val paramPattern: Pattern = Pattern.compile("\\s*,\\s*(?=\\{)")
         private val pagePattern = Pattern.compile("<(.*?)>")
         private val concurrentRecordMap = hashMapOf<String, ConcurrentRecord>()
+        private val queryEncoder =
+            RFC3986.UNRESERVED.orNew(PercentCodec.of("!$%&()*+,/:;=?@[\\]^`{|}"))
+
+        fun safeLogUrl(value: String): String {
+            val rawUrl = value.substringBefore(",{")
+            return runCatching {
+                val uri = URI(rawUrl)
+                if (uri.scheme == null || uri.host == null) {
+                    rawUrl.substringBefore('?').substringBefore('#').take(200)
+                } else {
+                    URI(uri.scheme, null, uri.host, uri.port, uri.path, null, null).toString().take(200)
+                }
+            }.getOrElse {
+                rawUrl.substringBefore('?').substringBefore('#').take(200)
+            }
+        }
     }
 
     override val logger: Logger
@@ -73,8 +99,8 @@ class AnalyzeUrl(
     val headerMap = HashMap<String, String>()
 
     private var urlNoQuery: String = ""
-    private var queryStr: String? = null
-    private val fieldMap = LinkedHashMap<String, String>()
+    private var encodedForm: String? = null
+    private var encodedQuery: String? = null
     private var charset: String? = null
     private var method = RequestMethod.GET
     private var proxy: String? = null
@@ -82,9 +108,14 @@ class AnalyzeUrl(
     private var useWebView: Boolean = false
     private var usePhone: Boolean = false
     private var webJs: String? = null
+    private var bodyJs: String? = null
+    private var dnsIp: String? = null
+    private var webViewDelayTime: Long = 0
     private val enabledCookieJar = source?.enabledCookieJar ?: false
     private val concurrentRateLimiter = ConcurrentRateLimiter(source)
     private val domain: String
+    var serverID: Long? = null
+        private set
 
 
     init {
@@ -136,7 +167,7 @@ class AnalyzeUrl(
         }
 
         val header= GSON.toJson(headerMap)
-        logger.info("header:$header")
+        logger.debug("showBrowser url:${safeLogUrl(url)}, headerKeys:${headerMap.keys.sorted()}")
         App.showBrowser(url,html?:"",preloadJs?:"",header,getSource()?.usertocken?:"")
     }
 
@@ -162,8 +193,8 @@ class AnalyzeUrl(
         //处理URL
         if(needanalyzeUrl) analyzeUrl()
 
-        logger.info("ruleUrl $ruleUrl")
-        logger.info("baseUrl $baseUrl")
+        logger.debug("ruleUrl ${safeLogUrl(ruleUrl)}")
+        logger.debug("baseUrl ${safeLogUrl(baseUrl)}")
         //debugLog?.log(source?. getKey(), ruleUrl)
     }
 
@@ -245,10 +276,21 @@ class AnalyzeUrl(
             baseUrl = it
         }
         if (urlNoOption.length != ruleUrl.length) {
-            GSON.fromJsonObject<UrlOption>(ruleUrl.substring(urlMatcher.end())).getOrNull()
-                ?.let { option ->
+            val optionJson = ruleUrl.substring(urlMatcher.end())
+            var urlOption = GSONStrict.fromJsonObject<UrlOption>(optionJson).getOrNull()
+            if (urlOption == null) {
+                urlOption = GSON.fromJsonObject<UrlOption>(optionJson).getOrNull()
+                if (urlOption != null) {
+                    log("链接参数 JSON 格式不规范，请改为规范格式")
+                }
+            }
+            urlOption?.let { option ->
                     option.getMethod()?.let {
-                        if (it.equals("POST", true)) method = RequestMethod.POST
+                        method = when (it.uppercase(Locale.ROOT)) {
+                            "POST" -> RequestMethod.POST
+                            "HEAD" -> RequestMethod.HEAD
+                            else -> RequestMethod.GET
+                        }
                     }
                     option.getHeaderMap()?.forEach { entry ->
                         headerMap[entry.key.toString()] = entry.value.toString()
@@ -262,6 +304,11 @@ class AnalyzeUrl(
                     useWebView = option.useWebView()
                     usePhone = option.usePhone()
                     webJs = option.getWebJs()
+                    bodyJs = option.getBodyJs()
+                    dnsIp = option.getDnsIp()
+                    serverID = option.getServerID()
+                    webViewDelayTime = max(0, option.getWebViewDelayTime() ?: 0)
+                    option.getOrigin()?.let { setRequestHeader("Origin", it) }
                     (option.getClick()?:option.getJs())?.let { jsStr ->
                         //println(jsStr)
                         evalJS(jsStr, url)?.toString()?.let {
@@ -275,10 +322,10 @@ class AnalyzeUrl(
         }
         urlNoQuery = url
         when (method) {
-            RequestMethod.GET -> {
+            RequestMethod.GET, RequestMethod.HEAD -> {
                 val pos = url.indexOf('?')
                 if (pos != -1) {
-                    analyzeFields(url.substring(pos + 1))
+                    analyzeQuery(url.substring(pos + 1))
                     urlNoQuery = url.substring(0, pos)
                 }
             }
@@ -289,27 +336,60 @@ class AnalyzeUrl(
             }
         }
     }
+
+    private fun setRequestHeader(name: String, value: String) {
+        headerMap.keys.filter { it.equals(name, true) }.forEach(headerMap::remove)
+        headerMap[name] = value
+    }
     /**
      * 解析QueryMap
      */
     private fun analyzeFields(fieldsTxt: String) {
-        queryStr = fieldsTxt
-        val queryS = fieldsTxt.splitNotBlank("&")
-        for (query in queryS) {
-            val pos = query.indexOf('=')
-            val value =if (pos != -1 && pos+1 != query.length ) query.substring(pos+1, query.length) else ""
-            val queryM = if (pos != -1 && pos != 0 ) query.substring(0, pos) else ""
-            if (charset.isNullOrEmpty()) {
-                if (NetworkUtils.hasUrlEncoded(value)) {
-                    fieldMap[queryM] = value
-                } else {
-                    fieldMap[queryM] = URLEncoder.encode(value, "UTF-8")
-                }
-            } else if (charset == "escape") {
-                fieldMap[queryM] = EncoderUtils.escape(value)
-            } else {
-                fieldMap[queryM] = URLEncoder.encode(value, charset)
+        encodedForm = encodeParams(fieldsTxt, charset, false)
+    }
+
+    private fun analyzeQuery(query: String) {
+        encodedQuery = encodeParams(query, charset, true)
+    }
+
+    private fun encodeParams(params: String, charsetName: String?, isQuery: Boolean): String {
+        val checkEncoded = charsetName.isNullOrEmpty()
+        val targetCharset = when {
+            charsetName.isNullOrEmpty() -> Charsets.UTF_8
+            charsetName == "escape" -> null
+            else -> Charset.forName(charsetName)
+        }
+        if (isQuery && targetCharset != null) {
+            if (NetworkUtils.encodedQuery(params)) return params
+            return queryEncoder.encode(params, targetCharset)
+        }
+        val result = StringBuilder()
+        var position = 0
+        while (position <= params.length) {
+            if (result.isNotEmpty()) result.append('&')
+            val ampersand = params.indexOf('&', position).takeIf { it >= 0 } ?: params.length
+            val equals = params.indexOf('=', position)
+            val hasValue = equals >= 0 && equals <= ampersand
+            val keyEnd = if (hasValue) equals else ampersand
+            result.appendEncoded(params.substring(position, keyEnd), checkEncoded, targetCharset)
+            if (hasValue) {
+                result.append('=')
+                result.appendEncoded(params.substring(equals + 1, ampersand), checkEncoded, targetCharset)
             }
+            position = ampersand + 1
+        }
+        return result.toString()
+    }
+
+    private fun StringBuilder.appendEncoded(
+        value: String,
+        checkEncoded: Boolean,
+        targetCharset: Charset?
+    ) {
+        when {
+            checkEncoded && NetworkUtils.encodedForm(value) -> append(value)
+            targetCharset == null -> append(EncoderUtils.escape(value))
+            else -> append(URLEncoder.encode(value, targetCharset))
         }
     }
 
@@ -324,8 +404,8 @@ class AnalyzeUrl(
         val bindings = buildScriptBindings { bindings ->
             bindings["java"] = this
             bindings["baseUrl"] = baseUrl
-            bindings["cookie"] =source?.getCookieManger()!!
-            bindings["cache"] = source?.getCacheManger()!!
+            bindings["cookie"] = source?.getCookieManger()
+            bindings["cache"] = source?.getCacheManger()
             bindings["page"] = page
             bindings["key"] = key
             bindings["speakText"] = speakText
@@ -333,6 +413,7 @@ class AnalyzeUrl(
             bindings["book"] = ruleData as? Book
             bindings["source"] = source
             bindings["result"] = result
+            bindings["infoMap"] = infoMap
             binding(bindings)
         }
         val scope = RhinoScriptEngine.getRuntimeScope(bindings)
@@ -396,59 +477,83 @@ class AnalyzeUrl(
     suspend fun getStrResponseAwait(
         jsStr: String? = null,
         sourceRegex: String? = null,
-        useWebView: Boolean = true
+        useWebView: Boolean = true,
+        isTest: Boolean = false,
+        skipRateLimit: Boolean = false
     ): StrResponse {
         if (type != null) {
             return StrResponse(url, StringUtils.byteToHexString(getByteArrayAwait()))
         }
-        logger.info("ajaxurl:$urlNoQuery,type:$type")
-        //logger.info("header:${GSON.toJson(headerMap)}")
-        var strResponse: StrResponse
-        concurrentRateLimiter.withLimit{
-            setCookie()
-            if (this.useWebView && useWebView) {
+        logger.debug("ajax url:${safeLogUrl(urlNoQuery)}, type:$type")
+        return if (skipRateLimit) {
+            executeStrRequest(jsStr, sourceRegex, useWebView, isTest)
+        } else {
+            concurrentRateLimiter.withLimit {
+                executeStrRequest(jsStr, sourceRegex, useWebView, isTest)
+            }
+        }
+    }
+
+    fun isSimpleGetRequest(): Boolean {
+        return method == RequestMethod.GET && encodedForm.isNullOrEmpty() && body.isNullOrEmpty()
+    }
+
+    private suspend fun executeStrRequest(
+        jsStr: String?,
+        sourceRegex: String?,
+        useWebView: Boolean,
+        isTest: Boolean
+    ): StrResponse {
+        setCookie()
+        val startTime = System.currentTimeMillis()
+        return try {
+            val response = if (this.useWebView && useWebView && method != RequestMethod.HEAD) {
                 when (method) {
                     RequestMethod.POST -> {
                         if(headerMap["Content-Type"].isNullOrBlank()){
-                            if (fieldMap.isNotEmpty() || body.isNullOrBlank()) {
+                            if (!encodedForm.isNullOrEmpty() || body.isNullOrBlank()) {
                                 headerMap["Content-Type"]="application/x-www-form-urlencoded"
-                                body = fieldMap.entries.joinToString("&") {
-                                    "${it.key}=${it.value}"
-                                }
+                                body = encodedForm.orEmpty()
                             } else {
                                 headerMap["Content-Type"]="application/json; charset=UTF-8"
                             }
                         }
-                        return  App.webviewbody("",url,webJs ?: jsStr,getSource()?.usertocken?:"",GSON.toJson(headerMap),body?:"",sourceRegex?:"","")
+                        App.webviewbody("",url,webJs ?: jsStr,getSource()?.usertocken?:"",GSON.toJson(headerMap),body?:"",sourceRegex?:"","",webViewDelayTime)
                     }
                     else -> {
-                        return  App.webview("",url,webJs ?: jsStr,getSource()?.usertocken?:"",GSON.toJson(headerMap),sourceRegex?:"","")
+                        App.webview("",url,webJs ?: jsStr,getSource()?.usertocken?:"",GSON.toJson(headerMap),sourceRegex?:"","",webViewDelayTime)
                     }
                 }
-                //return  webview("",url,"")
             } else  if(source?.phonehttp == true || this.usePhone){
                 when (method) {
                     RequestMethod.POST -> {
                         if(headerMap["Content-Type"].isNullOrBlank()){
-                            if (fieldMap.isNotEmpty() || body.isNullOrBlank()) {
+                            if (!encodedForm.isNullOrEmpty() || body.isNullOrBlank()) {
                                 headerMap["Content-Type"]="application/x-www-form-urlencoded"
-                                body = fieldMap.entries.joinToString("&") {
-                                    "${it.key}=${it.value}"
-                                }
+                                body = encodedForm.orEmpty()
                             } else {
                                 headerMap["Content-Type"]="application/json; charset=UTF-8"
                             }
                         }
                         val body=App.post(url,body?:"" ,GSON.toJson(headerMap),getSource()?.usertocken?:"",true)
-                        return  StrResponse(body.url,body.body())
+                        StrResponse(body.url,body.body())
+                    }
+                    RequestMethod.HEAD -> {
+                        val response = App.head(
+                            url,
+                            GSON.toJson(headerMap),
+                            getSource()?.usertocken ?: "",
+                            true
+                        )
+                        StrResponse(response.url, "")
                     }
                     else -> {
                         val body=App.get(url,GSON.toJson(headerMap),getSource()?.usertocken?:"",true)
-                        return  StrResponse(body.url,body.body())
+                        StrResponse(body.url,body.body())
                     }
                 }
             }else {
-                strResponse = getClient().newCallStrResponse(retry) {
+                getClient().newCallStrResponse(retry) {
                    // println(GSON.toJson(headerMap))
                     addHeaders(headerMap)
                     when (method) {
@@ -456,8 +561,8 @@ class AnalyzeUrl(
                             url(urlNoQuery)
                             val contentType = headerMap["Content-Type"]
                             val body = body
-                            if (fieldMap.isNotEmpty() || body.isNullOrBlank()) {
-                                postForm(fieldMap, true)
+                            if (!encodedForm.isNullOrEmpty() || body.isNullOrBlank()) {
+                                postForm(encodedForm.orEmpty())
                             } else if (!contentType.isNullOrBlank()) {
                                 val requestBody = body.toRequestBody(contentType.toMediaType())
                                 post(requestBody)
@@ -465,7 +570,11 @@ class AnalyzeUrl(
                                 postJson(body)
                             }
                         }
-                        else -> get(urlNoQuery, fieldMap, true)
+                        RequestMethod.HEAD -> {
+                            get(urlNoQuery, encodedQuery)
+                            head()
+                        }
+                        else -> get(urlNoQuery, encodedQuery)
                     }
                 }.let {
                     val isXml = it.raw.body?.contentType()?.toString()
@@ -474,9 +583,35 @@ class AnalyzeUrl(
                         StrResponse(it.raw, "<?xml version=\"1.0\"?>" + it.body)
                     } else it
                 }
-                return strResponse
+            }
+            applyBodyJs(response).apply {
+                putCallTime((System.currentTimeMillis() - startTime).coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+            }
+        } catch (e: Exception) {
+            if (!isTest) throw e
+            StrResponse(url, e.message).apply {
+                putCallTime(testErrorCode(e))
             }
         }
+    }
+
+    private fun testErrorCode(error: Exception): Int {
+        return when (error) {
+            is java.net.SocketTimeoutException -> -2
+            is java.net.UnknownHostException -> -3
+            is java.net.ConnectException -> -4
+            is java.net.SocketException -> -5
+            is javax.net.ssl.SSLException -> -6
+            is java.io.InterruptedIOException -> {
+                if (error.message?.contains("timeout", ignoreCase = true) == true) -1 else -7
+            }
+            else -> -7
+        }
+    }
+
+    private fun applyBodyJs(response: StrResponse): StrResponse {
+        val script = bodyJs ?: return response
+        return StrResponse(response.raw, evalJS(script, response.body).toString())
     }
 
 
@@ -490,6 +625,17 @@ class AnalyzeUrl(
             getStrResponseAwait(jsStr, sourceRegex, useWebView)
         }
     }
+
+    fun getErrResponse(error: Throwable): Response = Response.Builder()
+        .request(okhttp3.Request.Builder().url(url).build())
+        .protocol(okhttp3.Protocol.HTTP_1_1)
+        .code(500)
+        .message(error.message ?: "Error Response")
+        .body(error.stackTraceToString().toResponseBody(null))
+        .build()
+
+    fun getErrStrResponse(error: Throwable): StrResponse =
+        StrResponse(getErrResponse(error), error.stackTraceToString())
 
 
     /**
@@ -506,8 +652,8 @@ class AnalyzeUrl(
                         url(urlNoQuery)
                         val contentType = headerMap["Content-Type"]
                         val body = body
-                        if (fieldMap.isNotEmpty() || body.isNullOrBlank()) {
-                            postForm(fieldMap, true)
+                        if (!encodedForm.isNullOrEmpty() || body.isNullOrBlank()) {
+                            postForm(encodedForm.orEmpty())
                         } else if (!contentType.isNullOrBlank()) {
                             val requestBody = body.toRequestBody(contentType.toMediaType())
                             post(requestBody)
@@ -515,8 +661,11 @@ class AnalyzeUrl(
                             postJson(body)
                         }
                     }
-
-                    else -> get(urlNoQuery, fieldMap, true)
+                    RequestMethod.HEAD -> {
+                        get(urlNoQuery, encodedQuery)
+                        head()
+                    }
+                    else -> get(urlNoQuery, encodedQuery)
                 }
             }
 
@@ -526,13 +675,42 @@ class AnalyzeUrl(
 
     private fun getClient(): OkHttpClient {
         val client = getProxyClient(proxy)
-        if (readTimeout == null) {
+        if (readTimeout == null && callTimeout == null && dnsIp == null) {
             return client
         }
-        return client.newBuilder()
-            .readTimeout(readTimeout, TimeUnit.MILLISECONDS)
-            .callTimeout(max(60 * 1000L, readTimeout * 2), TimeUnit.MILLISECONDS)
-            .build()
+        return client.newBuilder().apply {
+            readTimeout?.let {
+                readTimeout(it, TimeUnit.MILLISECONDS)
+                callTimeout(max(60 * 1000L, it * 2), TimeUnit.MILLISECONDS)
+            }
+            callTimeout?.let {
+                callTimeout(it, TimeUnit.MILLISECONDS)
+            }
+            dnsIp?.parseDnsAddresses()?.let { addresses ->
+                val targetHost = extractHostFromUrl(urlNoQuery)
+                dns(object : Dns {
+                    override fun lookup(hostname: String): List<InetAddress> {
+                        return if (targetHost != null && hostname.equals(targetHost, true)) {
+                            addresses
+                        } else {
+                            Dns.SYSTEM.lookup(hostname)
+                        }
+                    }
+                })
+            }
+        }.build()
+    }
+
+    private fun extractHostFromUrl(value: String): String? {
+        return runCatching { URI(value).host }.getOrNull()
+    }
+
+    private fun String.parseDnsAddresses(): List<InetAddress>? {
+        return split(',')
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .mapNotNull { runCatching { InetAddress.getByName(it) }.getOrNull() }
+            .takeIf(List<InetAddress>::isNotEmpty)
     }
 
     fun getResponse(): Response {
@@ -583,7 +761,7 @@ class AnalyzeUrl(
      */
     override  fun toast(msg: Any?) {
         logger.info("toast:$msg")
-        if(toastc > 50){
+        if(toastc >= 50){
             throw Exception("toast 调用次数超过50次")
         }
         toastc=toastc+1
@@ -592,7 +770,7 @@ class AnalyzeUrl(
 
     override fun longToast(msg: Any?) {
         logger.info("longToast:$msg")
-        if(toastc > 50){
+        if(toastc >= 50){
             throw Exception("toast 调用次数超过50次")
         }
         toastc=toastc+1
@@ -645,13 +823,18 @@ class AnalyzeUrl(
         private var charset: String? = null,
         private var headers: Any? = null,
         private var body: Any? = null,
+        private var origin: String? = null,
         private var retry: Int? = null,
         private var type: String? = null,
         private var webView: Any? = null,
         private var webJs: String? = null,
+        private var dnsIp: String? = null,
         private var js: String? = null,
+        private var bodyJs: String? = null,
         private var click: String? = null,
         private var usePhone: Any? = null,
+        private var serverID: Long? = null,
+        private var webViewDelayTime: Long? = null,
     ) {
         fun setMethod(value: String?) {
             method = if (value.isNullOrBlank()) null else value
@@ -675,6 +858,14 @@ class AnalyzeUrl(
 
         fun getCharset(): String? {
             return charset
+        }
+
+        fun setOrigin(value: String?) {
+            origin = if (value.isNullOrBlank()) null else value
+        }
+
+        fun getOrigin(): String? {
+            return origin
         }
 
         fun setRetry(value: String?) {
@@ -754,12 +945,44 @@ class AnalyzeUrl(
             return webJs
         }
 
+        fun setDnsIp(value: String?) {
+            dnsIp = if (value.isNullOrBlank()) null else value
+        }
+
+        fun getDnsIp(): String? {
+            return dnsIp
+        }
+
         fun setJs(value: String?) {
             js = if (value.isNullOrBlank()) null else value
         }
 
         fun getJs(): String? {
             return js
+        }
+
+        fun setBodyJs(value: String?) {
+            bodyJs = if (value.isNullOrBlank()) null else value
+        }
+
+        fun getBodyJs(): String? {
+            return bodyJs
+        }
+
+        fun setServerID(value: String?) {
+            serverID = if (value.isNullOrBlank()) null else value.toLong()
+        }
+
+        fun getServerID(): Long? {
+            return serverID
+        }
+
+        fun setWebViewDelayTime(value: String?) {
+            webViewDelayTime = if (value.isNullOrBlank()) null else value.toLong()
+        }
+
+        fun getWebViewDelayTime(): Long? {
+            return webViewDelayTime
         }
     }
 

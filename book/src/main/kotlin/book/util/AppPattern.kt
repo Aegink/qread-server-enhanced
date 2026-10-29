@@ -5,8 +5,12 @@ import java.util.regex.Pattern
 object AppPattern {
     val JS_PATTERN: Pattern =
         Pattern.compile("<js>([\\w\\W]*?)</js>|@js:([\\w\\W]*)", Pattern.CASE_INSENSITIVE)
+    val WEB_JS_PATTERN: Pattern =
+        Pattern.compile("@webjs:([\\w\\W]{5,})", Pattern.CASE_INSENSITIVE)
     val EXP_PATTERN: Pattern = Pattern.compile("\\{\\{([\\w\\W]*?)\\}\\}")
     val titleNumPattern: Pattern = Pattern.compile("(第)(.+?)(章)")
+    val titleImageRegex = Regex("(.*)((?:data|https?):[\\s\\S]+)$")
+    val LFRegex = "\n".toRegex()
 
     //匹配格式化后的图片格式
     val imgPattern: Pattern = Pattern.compile("<img[^>]*src=\"([^\"]*(?:\"[^>]+\\})?)\"[^>]*>")

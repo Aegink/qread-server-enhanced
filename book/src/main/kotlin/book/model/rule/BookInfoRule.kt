@@ -1,5 +1,7 @@
 package book.model.rule
 
+import book.util.ruleJsonDeserializer
+
 data class BookInfoRule(
     var init: String? = null,
     var name: String? = null,
@@ -13,5 +15,10 @@ data class BookInfoRule(
     var wordCount: String? = null,
     var canReName: String? = null,
     var downloadUrls: String? = null
-)
-
+) {
+    companion object {
+        val jsonDeserializer = ruleJsonDeserializer(BookInfoRule::class.java) {
+            BookInfoRule(name = it)
+        }
+    }
+}

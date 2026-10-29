@@ -24,7 +24,7 @@ object BookInfo {
             "error_get_web_content: " + baseUrl
         )
         debugLog?.log(bookSource.bookSourceUrl, "≡获取成功:${baseUrl}")
-        val analyzeRule = AnalyzeRule(book, debugLog,bookSource)
+        val analyzeRule = AnalyzeRule(book, debugLog,bookSource).setRuleType("BOOK_INFO")
         analyzeRule.setContent(body).setBaseUrl(baseUrl)
         analyzeRule.setRedirectUrl(redirectUrl)
         analyzeBookInfo(book, body, analyzeRule, bookSource, baseUrl, redirectUrl, canReName, debugLog)

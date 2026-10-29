@@ -15,6 +15,12 @@ object SourceAnalyzer {
     private val headerPattern = Pattern.compile("@Header:\\{.+?\\}", Pattern.CASE_INSENSITIVE)
     private val jsPattern = Pattern.compile("\\{\\{.+?\\}\\}", Pattern.CASE_INSENSITIVE)
 
+    private inline fun <reified T> parseRule(value: Any?): T? {
+        if (value == null) return null
+        // 统一包成 JSON 字符串，让适配器同时处理对象、JSON 字符串和单条规则字符串。
+        return GSON.fromJsonObject<T>(GSON.toJson(value)).getOrNull()
+    }
+
     fun jsonToBookSources(json: String): Result<MutableList<BookSource>> {
         return kotlin.runCatching {
             val bookSources = mutableListOf<BookSource>()
@@ -65,14 +71,28 @@ object SourceAnalyzer {
 
     fun jsonToBookSource(json: String): Result<BookSource> {
         val source = BookSource()
-        val sourceAny = GSON.fromJsonObject<BookSourceAny>(json.trim())
+        val sourceJson = json.trim()
+        val sourceAny = GSON.fromJsonObject<BookSourceAny>(sourceJson)
             .onFailure {
                 Debug.log("转化书源出错", it.localizedMessage)
             }.getOrNull()
+        val sourceMap = GSON.fromJsonObject<Map<String, Any?>>(sourceJson).getOrNull()
+        val legacyKeys = setOf(
+            "ruleSearchList",
+            "ruleFindList",
+            "ruleChapterList",
+            "ruleBookContent",
+            "ruleSearchUrl",
+            "ruleFindUrl",
+            "httpUserAgent",
+            "serialNumber",
+            "ruleBookUrlPattern"
+        )
+        val isLegacySource = sourceMap?.keys?.any(legacyKeys::contains) == true
         return kotlin.runCatching {
-            if (sourceAny?.ruleToc == null) {
+            if (sourceAny == null || isLegacySource) {
                 source.apply {
-                    val jsonItem = jsonPath.parse(json.trim())
+                    val jsonItem = jsonPath.parse(sourceJson)
                     bookSourceUrl = jsonItem.readString("bookSourceUrl")
                         ?: throw NoStackTraceException("格式不对")
                     bookSourceName = jsonItem.readString("bookSourceName") ?: ""
@@ -83,6 +103,11 @@ object SourceAnalyzer {
                     loginCheckJs = jsonItem.readString("loginCheckJs")
                     coverDecodeJs = jsonItem.readString("coverDecodeJs")
                     bookSourceComment = jsonItem.readString("bookSourceComment") ?: ""
+                    exploreScreen = jsonItem.readString("exploreScreen")
+                    eventListener = jsonItem.readBool("eventListener") ?: false
+                    customButton = jsonItem.readBool("customButton") ?: false
+                    nextPageLazyLoad = jsonItem.readBool("nextPageLazyLoad") ?: false
+                    homepageModules = jsonItem.readString("homepageModules")
                     bookUrlPattern = jsonItem.readString("ruleBookUrlPattern")
                     customOrder = jsonItem.readInt("serialNumber") ?: 0
                     header = uaToHeader(jsonItem.readString("httpUserAgent"))
@@ -99,6 +124,9 @@ object SourceAnalyzer {
                         "FILE" -> BookType.file
                         "file" -> BookType.file
                         "3" -> BookType.file
+                        "VIDEO" -> BookType.video
+                        "video" -> BookType.video
+                        "4" -> BookType.video
                         else -> BookType.default
                     }
                     jsLib=jsonItem.readString("jsLib")?:""
@@ -158,6 +186,9 @@ object SourceAnalyzer {
                         imageStyle = toNewRule(jsonItem.readString("imageStyle")),
                         imageDecode = toNewRule(jsonItem.readString("imageDecode")),
                     )
+                    sourceAny?.let {
+                        ruleReview = parseRule<ReviewRule>(it.ruleReview)
+                    }
                 }
             } else {
                 source.jsLib=sourceAny.jsLib
@@ -187,46 +218,22 @@ object SourceAnalyzer {
                 source.loginCheckJs = sourceAny.loginCheckJs
                 source.coverDecodeJs =  sourceAny.coverDecodeJs
                 source.bookSourceComment = sourceAny.bookSourceComment
+                source.exploreScreen = sourceAny.exploreScreen
+                source.eventListener = sourceAny.eventListener
+                source.customButton = sourceAny.customButton
+                source.nextPageLazyLoad = sourceAny.nextPageLazyLoad
+                source.homepageModules = sourceAny.homepageModules
                 source.lastUpdateTime = sourceAny.lastUpdateTime
                 source.respondTime = sourceAny.respondTime
                 source.weight = sourceAny.weight
                 source.exploreUrl = sourceAny.exploreUrl
-                source.ruleExplore = if (sourceAny.ruleExplore is String) {
-                    GSON.fromJsonObject<ExploreRule>(sourceAny.ruleExplore.toString())
-                        .getOrNull()
-                } else {
-                    GSON.fromJsonObject<ExploreRule>(GSON.toJson(sourceAny.ruleExplore))
-                        .getOrNull()
-                }
+                source.ruleExplore = parseRule<ExploreRule>(sourceAny.ruleExplore)
                 source.searchUrl = sourceAny.searchUrl
-                source.ruleSearch = if (sourceAny.ruleSearch is String) {
-                    GSON.fromJsonObject<SearchRule>(sourceAny.ruleSearch.toString())
-                        .getOrNull()
-                } else {
-                    GSON.fromJsonObject<SearchRule>(GSON.toJson(sourceAny.ruleSearch))
-                        .getOrNull()
-                }
-                source.ruleBookInfo = if (sourceAny.ruleBookInfo is String) {
-                    GSON.fromJsonObject<BookInfoRule>(sourceAny.ruleBookInfo.toString())
-                        .getOrNull()
-                } else {
-                    GSON.fromJsonObject<BookInfoRule>(GSON.toJson(sourceAny.ruleBookInfo))
-                        .getOrNull()
-                }
-                source.ruleToc = if (sourceAny.ruleToc is String) {
-                    GSON.fromJsonObject<TocRule>(sourceAny.ruleToc.toString())
-                        .getOrNull()
-                } else {
-                    GSON.fromJsonObject<TocRule>(GSON.toJson(sourceAny.ruleToc))
-                        .getOrNull()
-                }
-                source.ruleContent = if (sourceAny.ruleContent is String) {
-                    GSON.fromJsonObject<ContentRule>(sourceAny.ruleContent.toString())
-                        .getOrNull()
-                } else {
-                    GSON.fromJsonObject<ContentRule>(GSON.toJson(sourceAny.ruleContent))
-                        .getOrNull()
-                }
+                source.ruleSearch = parseRule<SearchRule>(sourceAny.ruleSearch)
+                source.ruleBookInfo = parseRule<BookInfoRule>(sourceAny.ruleBookInfo)
+                source.ruleToc = parseRule<TocRule>(sourceAny.ruleToc)
+                source.ruleContent = parseRule<ContentRule>(sourceAny.ruleContent)
+                source.ruleReview = parseRule<ReviewRule>(sourceAny.ruleReview)
             }
             source
         }
@@ -251,12 +258,18 @@ object SourceAnalyzer {
         var respondTime: Long = 180000L,                // 响应时间，用于排序
         var weight: Int = 0,                            // 智能排序的权重
         var exploreUrl: String? = null,                 // 发现url
+        var exploreScreen: String? = null,              // 发现页筛选规则
         var ruleExplore: Any? = null,                   // 发现规则
         var searchUrl: String? = null,                  // 搜索url
         var ruleSearch: Any? = null,                    // 搜索规则
         var ruleBookInfo: Any? = null,                  // 书籍信息页规则
         var ruleToc: Any? = null,                       // 目录页规则
         var ruleContent: Any? = null   ,                 // 正文页规则
+        var ruleReview: Any? = null,                    // 段评规则
+        var eventListener: Boolean = false,
+        var customButton: Boolean = false,
+        var nextPageLazyLoad: Boolean = false,
+        var homepageModules: String? = null,
         var jsLib:String?=null,
         var enabledCookieJar: Boolean?=false,
         var phonehttp: Boolean?=null,

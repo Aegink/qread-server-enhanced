@@ -4,6 +4,7 @@ import book.appCtx
 import book.model.Cache
 import book.util.FileUtils
 import book.util.MyCache
+import book.util.SynchronizedLruCache
 import book.webBook.analyzeRule.QueryTTF
 import com.google.gson.Gson
 import java.io.File
@@ -34,12 +35,17 @@ fun hash(algorithm: String, srcStr: String): String {
 }
 
 val memoryLruCache:MyCache = MyCache(100)
+private val queryTTFMap = SynchronizedLruCache<String, Pair<Long, QueryTTF>>(4)
+
+internal fun queryTTFCacheSize(): Int = queryTTFMap.size()
+
+internal fun clearQueryTTFCache() = queryTTFMap.clear()
 
 
 @Suppress("unused")
 class CacheManager(val userid:String) {
 
-    private val queryTTFMap = hashMapOf<String, Pair<Long, QueryTTF>>()
+    private fun queryTTFKey(key: String): String = "${userid}_$key"
 
     private val ruleDataDir = FileUtils.createFolderIfNotExist(appCtx.externalFiles, "cache")
     private val cahceData = FileUtils.createFolderIfNotExist(ruleDataDir, "cache",userid)
@@ -84,8 +90,7 @@ class CacheManager(val userid:String) {
             if (saveTime == 0) 0 else System.currentTimeMillis() + saveTime * 1000
         when (value) {
             is QueryTTF -> {
-               // println("put queryTTFMap:$key")
-                queryTTFMap[key] = Pair(deadline, value)
+                queryTTFMap.put(queryTTFKey(key), Pair(deadline, value))
             }
             is ByteArray -> {
                 //println("put ByteArray:$key")
@@ -166,11 +171,10 @@ class CacheManager(val userid:String) {
     }
 
     fun getQueryTTF(key: String): QueryTTF? {
-        val cache = queryTTFMap[key] ?: return null
-        if (cache.first == 0L || cache.first > System.currentTimeMillis()) {
-            return cache.second
-        }
-        return null
+        val now = System.currentTimeMillis()
+        return queryTTFMap.getOrRemove(queryTTFKey(key)) { cache ->
+            cache.first == 0L || cache.first > now
+        }?.second
     }
 
     fun putFile(key: String, value: String, saveTime: Int = 0) {

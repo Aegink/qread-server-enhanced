@@ -2,18 +2,17 @@ package book.webBook.localBook
 
 import book.model.Book
 import book.model.BookChapter
-import book.util.FileUtils
 import book.util.help.BookHelp
 import book.webBook.exception.TocEmptyException
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileNotFoundException
 import java.io.InputStream
-import java.util.regex.Matcher
 import java.util.regex.Pattern
-import javax.script.SimpleBindings
 
 object LocalBook {
+
+    private val supportedExtensions = setOf("txt", "epub", "umd", "cbz", "mobi", "azw", "azw3", "pdf")
 
     private val nameAuthorPatterns = arrayOf(
         Pattern.compile("(.*?)《([^《》]+)》.*?作者：(.*)"),
@@ -31,6 +30,25 @@ object LocalBook {
         throw FileNotFoundException(book.name + " 文件不存在")
     }
 
+    fun isSupportedFile(file: File): Boolean =
+        file.isFile && file.extension.lowercase() in supportedExtensions
+
+    fun getLastModified(book: Book): Result<Long> = runCatching {
+        val file = book.getLocalFile()
+        if (!file.isFile) throw FileNotFoundException("${book.name} 文件不存在")
+        file.lastModified()
+    }
+
+    fun upBookInfo(book: Book, onlyCover: Boolean = false) {
+        when {
+            book.isEpub() -> EpubFile.upBookInfo(book, onlyCover)
+            book.isUmd() -> UmdFile.upBookInfo(book, onlyCover)
+            book.isCbz() -> CbzFile.upBookInfo(book, onlyCover)
+            book.isMobi() -> MobiFile.upBookInfo(book, onlyCover)
+            book.isPdf() -> PdfFile.upBookInfo(book, onlyCover)
+        }
+    }
+
     @Throws(Exception::class)
     fun getChapterList(book: Book): ArrayList<BookChapter> {
         val chapters = when {
@@ -42,6 +60,12 @@ object LocalBook {
             }
             book.isCbz() -> {
                 CbzFile.getChapterList(book)
+            }
+            book.isMobi() -> {
+                MobiFile.getChapterList(book)
+            }
+            book.isPdf() -> {
+                PdfFile.getChapterList(book)
             }
             else -> {
                 TextFile.getChapterList(book)
@@ -63,6 +87,12 @@ object LocalBook {
             }
             book.isCbz() -> {
                 CbzFile.getContent(book, chapter)
+            }
+            book.isMobi() -> {
+                MobiFile.getContent(book, chapter)
+            }
+            book.isPdf() -> {
+                PdfFile.getContent(book, chapter)
             }
             else -> {
                 TextFile.getContent(book, chapter)
@@ -94,17 +124,16 @@ object LocalBook {
 
     fun deleteBook(book: Book) {
         kotlin.runCatching {
-            var bookFile = book.getLocalFile();
-            if (book.isLocalTxt() || book.isUmd()) {
-                if (bookFile.exists()) {
-                    bookFile.delete()
-                }
+            when {
+                book.isEpub() -> EpubFile.remove(book)
+                book.isUmd() -> UmdFile.remove(book)
+                book.isCbz() -> CbzFile.remove(book)
+                book.isMobi() -> MobiFile.remove(book)
+                book.isPdf() -> PdfFile.remove(book)
             }
-            if (book.isEpub()) {
-                bookFile = bookFile.parentFile
-                if (bookFile != null && bookFile.exists()) {
-                    FileUtils.delete(bookFile, true)
-                }
+            val bookFile = book.getLocalFile()
+            if (bookFile.isFile) {
+                bookFile.delete()
             }
         }
     }

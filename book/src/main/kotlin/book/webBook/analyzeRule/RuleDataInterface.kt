@@ -25,7 +25,7 @@ interface RuleDataInterface {
             else -> {
                 variableMap[key] = value
                 putBigVariable(key, value)
-                keyExist
+                true
             }
         }
     }

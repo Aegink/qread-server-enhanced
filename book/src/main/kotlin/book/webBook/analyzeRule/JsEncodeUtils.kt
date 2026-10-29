@@ -4,7 +4,7 @@ import book.util.Base64
 import book.util.MD5Utils
 import book.util.crypto.AsymmetricCrypto
 import book.util.replace
-import cn.hutool.crypto.asymmetric.Sign
+import book.util.crypto.Sign
 import cn.hutool.crypto.digest.DigestUtil
 import cn.hutool.crypto.digest.HMac
 import cn.hutool.crypto.symmetric.SymmetricCrypto

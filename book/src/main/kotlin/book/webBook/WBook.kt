@@ -5,8 +5,11 @@ package book.webBook
 import book.app.App
 import book.model.*
 import book.util.http.StrResponse
+import book.util.help.BookHelp
 import book.webBook.analyzeRule.AnalyzeUrl
+import book.webBook.analyzeRule.AnalyzeRule
 import book.webBook.exception.NoStackTraceException
+import kotlinx.coroutines.currentCoroutineContext
 import okhttp3.Response
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -19,8 +22,8 @@ class WBook (val bookSource: BookSource, val debugLog: Boolean = true, var debug
     constructor(bookSourceString: String, _userid:String, _usertocken:String?=null, debugLog: Boolean = true) : this(BookSource.fromJson(bookSourceString).getOrNull() ?: BookSource(), debugLog,userid=_userid,usertocken=_usertocken)
 
     init {
-        bookSource.userid = userid
-        bookSource.usertocken = usertocken
+        if (userid != null) bookSource.userid = userid
+        if (usertocken != null) bookSource.usertocken = usertocken
         bookSource.debugLog = debugLogger
     }
 
@@ -88,6 +91,18 @@ class WBook (val bookSource: BookSource, val debugLog: Boolean = true, var debug
                 }
             }
         }?:arrayListOf()
+    }
+
+    /**
+     * 在当前书源中按规范化后的书名和作者精确查找书籍。
+     */
+    suspend fun preciseSearch(name: String, author: String): Book {
+        val expectedName = BookHelp.formatBookName(name)
+        val expectedAuthor = BookHelp.formatBookAuthor(author)
+        return searchBook(name).firstOrNull {
+            BookHelp.formatBookName(it.name) == expectedName &&
+                BookHelp.formatBookAuthor(it.author) == expectedAuthor
+        }?.toBook() ?: throw NoStackTraceException("未搜索到 $name($author) 书籍")
     }
 
     /**
@@ -161,6 +176,13 @@ class WBook (val bookSource: BookSource, val debugLog: Boolean = true, var debug
     suspend fun getBookInfo(bookUrl: String, canReName: Boolean = true): Book {
         val book = Book()
         book.bookUrl = bookUrl
+        return refreshBookInfo(book, canReName)
+    }
+
+    /**
+     * 强制从详情页刷新现有 Book，供 preUpdateJs 更新失效链接使用。
+     */
+    suspend fun refreshBookInfo(book: Book, canReName: Boolean = true): Book {
         book.userid=userid?:""
         book.origin = bookSource.bookSourceUrl
         book.originName = bookSource.bookSourceName
@@ -197,6 +219,7 @@ class WBook (val bookSource: BookSource, val debugLog: Boolean = true, var debug
     ): List<BookChapter> {
         book.userid=userid?:""
         book.type = bookSource.bookSourceType
+        runPreUpdateJs(book)
         return if (book.bookUrl == book.tocUrl && !book.tocHtml.isNullOrEmpty()) {
             BookChapterList.analyzeChapterList(
                 book,
@@ -227,6 +250,17 @@ class WBook (val bookSource: BookSource, val debugLog: Boolean = true, var debug
             checkRedirect(bookSource, res)
             return BookChapterList.analyzeChapterList(book, res.body, bookSource, book.tocUrl, res.url, debugLog = debugger)
         }
+    }
+
+    private suspend fun runPreUpdateJs(book: Book) {
+        val script = bookSource.getTocRule().preUpdateJs
+        if (script.isNullOrBlank()) return
+        AnalyzeRule(
+            ruleData = book,
+            debugLog = debugger,
+            source = bookSource,
+            preUpdateJs = true
+        ).setCoroutineContext(currentCoroutineContext()).setRuleType("TOC").evalJS(script)
     }
 
     /**

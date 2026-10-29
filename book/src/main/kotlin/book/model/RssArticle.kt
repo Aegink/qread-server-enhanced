@@ -19,6 +19,8 @@ data class RssArticle(
     var read: Boolean = false,
     @Expose(serialize = false, deserialize = false)
     override var variable: String? = null,
+    /**类型 0网页，1图片，2视频**/
+    var type: Int = 0,
     override var userid: String ="",
 ) : BaseRssArticle {
 
@@ -46,6 +48,7 @@ data class RssArticle(
         image = image,
         group = group,
         variable = variable,
+        type = type,
         userid = userid,
     )
 }

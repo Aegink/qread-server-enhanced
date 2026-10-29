@@ -1,5 +1,5 @@
 package book.util.http
 
 enum class RequestMethod {
-    GET, POST
+    GET, POST, HEAD
 }

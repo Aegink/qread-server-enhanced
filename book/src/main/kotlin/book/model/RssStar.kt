@@ -18,6 +18,7 @@ data class RssStar(
     var group: String = "默认分组",
     @Expose(serialize = false, deserialize = false)
     override var variable: String? = null,
+    var type: Int = 0,
     override var userid: String ="",
 ) : BaseRssArticle {
 
@@ -37,6 +38,7 @@ data class RssStar(
         image = image,
         group = group,
         variable = variable,
+        type = type,
         userid = userid,
     )
 }

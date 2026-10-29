@@ -9,13 +9,24 @@ import book.util.StringUtils
 import book.util.Utf8BomUtils
 import book.util.help.DefaultData
 import org.slf4j.LoggerFactory
+import java.io.EOFException
 import java.io.FileNotFoundException
+import java.io.InputStream
 import java.nio.charset.Charset
 import java.util.regex.Matcher
 import java.util.regex.Pattern
 import kotlin.math.min
 
 private val logger = LoggerFactory.getLogger(TextFile::class.java)
+
+internal fun readChapterBytes(input: InputStream, start: Long, count: Int): ByteArray {
+    input.skipNBytes(start)
+    val bytes = input.readNBytes(count)
+    if (bytes.size != count) {
+        throw EOFException("Expected $count bytes at offset $start, but read ${bytes.size}")
+    }
+    return bytes
+}
 
 class TextFile(private val book: Book) {
 
@@ -29,10 +40,8 @@ class TextFile(private val book: Book) {
         @Throws(FileNotFoundException::class)
         fun getContent(book: Book, bookChapter: BookChapter): String {
             val count = (bookChapter.end!! - bookChapter.start!!).toInt()
-            val buffer = ByteArray(count)
-            LocalBook.getBookInputStream(book).use { bis ->
-                bis.skip(bookChapter.start!!)
-                bis.read(buffer)
+            val buffer = LocalBook.getBookInputStream(book).use { input ->
+                readChapterBytes(input, bookChapter.start!!, count)
             }
             if (book.charset == null) {
                 book.charset = EncodingDetect.getEncode(book.getLocalFile())
@@ -229,8 +238,6 @@ class TextFile(private val book: Book) {
                 toc.lastOrNull()?.end = curOffset
             }
         }
-        System.gc()
-        //System.runFinalization()
         return toc
     }
 

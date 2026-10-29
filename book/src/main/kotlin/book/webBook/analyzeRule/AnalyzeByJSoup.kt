@@ -2,6 +2,7 @@ package book.webBook.analyzeRule
 
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
+import org.jsoup.parser.Parser
 import org.jsoup.select.Collector
 import org.jsoup.select.Elements
 import org.jsoup.select.Evaluator
@@ -14,17 +15,26 @@ import java.util.*
  */
 class AnalyzeByJSoup(doc: Any) {
     companion object {
+        private val nullSet = setOf(null)
+
         /**
          * "class", "id", "tag", "text", "children"
          */
         val validKeys = arrayOf("class", "id", "tag", "text", "children")
 
         fun parse(doc: Any): Element {
-            return when (doc) {
-                is Element -> doc
-                is JXNode -> if (doc.isElement) doc.asElement() else Jsoup.parse(doc.toString())
-                else -> Jsoup.parse(doc.toString())
+            if (doc is Element) {
+                return doc
             }
+            if (doc is JXNode) {
+                return if (doc.isElement) doc.asElement() else Jsoup.parse(doc.toString())
+            }
+            runCatching {
+                if (doc.toString().startsWith("<?xml", true)) {
+                    return Jsoup.parse(doc.toString(), Parser.xmlParser())
+                }
+            }
+            return Jsoup.parse(doc.toString())
         }
 
     }
@@ -39,9 +49,15 @@ class AnalyzeByJSoup(doc: Any) {
     /**
      * 合并内容列表,得到内容
      */
-    internal fun getString(ruleStr: String) =
-        if (ruleStr.isEmpty()) null
-        else getStringList(ruleStr).takeIf { it.isNotEmpty() }?.joinToString("\n")
+    internal fun getString(ruleStr: String): String? {
+        if (ruleStr.isEmpty()) return null
+        val list = getStringList(ruleStr)
+        return when (list.size) {
+            0 -> null
+            1 -> list.first()
+            else -> list.joinToString("\n")
+        }
+    }
 
     /**
      * 获取一个字符串
@@ -77,7 +93,7 @@ class AnalyzeByJSoup(doc: Any) {
                     if (sourceRule.isCss) {
                         val lastIndex = ruleStrX.lastIndexOf('@')
                         getResultLast(
-                            element.select(ruleStrX.substring(0, lastIndex)),
+                            element.select(ruleStrX.take(lastIndex)),
                             ruleStrX.substring(lastIndex + 1)
                         )
                     } else {
@@ -89,7 +105,7 @@ class AnalyzeByJSoup(doc: Any) {
                     if (ruleAnalyzes.elementsType == "||") break
                 }
             }
-            if (results.size > 0) {
+            if (results.isNotEmpty()) {
                 if ("%%" == ruleAnalyzes.elementsType) {
                     for (i in results[0].indices) {
                         for (temp in results) {
@@ -126,7 +142,7 @@ class AnalyzeByJSoup(doc: Any) {
             for (ruleStr in ruleStrS) {
                 val tempS = temp.select(ruleStr)
                 elementsList.add(tempS)
-                if (tempS.size > 0 && ruleAnalyzes.elementsType == "||") {
+                if (tempS.isNotEmpty() && ruleAnalyzes.elementsType == "||") {
                     break
                 }
             }
@@ -154,12 +170,12 @@ class AnalyzeByJSoup(doc: Any) {
                 } else ElementsSingle().getElementsSingle(temp, ruleStr)
 
                 elementsList.add(el)
-                if (el.size > 0 && ruleAnalyzes.elementsType == "||") {
+                if (el.isNotEmpty() && ruleAnalyzes.elementsType == "||") {
                     break
                 }
             }
         }
-        if (elementsList.size > 0) {
+        if (elementsList.isNotEmpty()) {
             if ("%%" == ruleAnalyzes.elementsType) {
                 for (i in 0 until elementsList[0].size) {
                     for (es in elementsList) {
@@ -180,7 +196,7 @@ class AnalyzeByJSoup(doc: Any) {
     /**
      * 获取内容列表
      */
-    private fun getResultList(ruleStr: String): List<String>? {
+    private fun getResultList(ruleStr: String): ArrayList<String>? {
 
         if (ruleStr.isEmpty()) return null
 
@@ -209,7 +225,7 @@ class AnalyzeByJSoup(doc: Any) {
     /**
      * 根据最后一个规则获取内容
      */
-    private fun getResultLast(elements: Elements, lastRule: String): List<String> {
+    private fun getResultLast(elements: Elements, lastRule: String): ArrayList<String> {
         val textS = ArrayList<String>()
         when (lastRule) {
             "text" -> for (element in elements) {
@@ -317,13 +333,22 @@ class AnalyzeByJSoup(doc: Any) {
                 if (indexes[ix] is Triple<*, *, *>) { //区间
                     val (startX, endX, stepX) = indexes[ix] as Triple<Int?, Int?, Int> //还原储存时的类型
 
-                    val start = if (startX == null) 0 //左端省略表示0
-                    else if (startX >= 0) if (startX < len) startX else len - 1 //右端越界，设置为最大索引
-                    else if (-startX <= len) len + startX /* 将负索引转正 */ else 0 //左端越界，设置为最小索引
+                    var start = startX ?: 0 //左端省略表示0
+                    if (start < 0) start += len //将负索引转正
 
-                    val end = if (endX == null) len - 1 //右端省略表示 len - 1
-                    else if (endX >= 0) if (endX < len) endX else len - 1 //右端越界，设置为最大索引
-                    else if (-endX <= len) len + endX /* 将负索引转正 */ else 0 //左端越界，设置为最小索引
+                    var end = endX ?: (len - 1) //右端省略表示 len - 1
+                    if (end < 0) end += len //将负索引转正
+
+                    if ((start < 0 && end < 0) || (start >= len && end >= len)) {
+                        //start 和 end 同侧越界，无有效索引
+                        continue
+                    }
+
+                    if (start >= len) start = len - 1 //右端越界，设置为最大索引
+                    else if (start < 0) start = 0 //左端越界，设置为最小索引
+
+                    if (end >= len) end = len - 1 //右端越界，设置为最大索引
+                    else if (end < 0) end = 0 //左端越界，设置为最小索引
 
                     if (start == end || stepX >= len) { //两端相同，区间里只有一个数。或间隔过大，区间实际上仅有首位
 
@@ -356,7 +381,7 @@ class AnalyzeByJSoup(doc: Any) {
 
                 for (pcInt in indexSet) elements[pcInt] = null
 
-                elements.removeAll(listOf(null)) //测试过，这样就行
+                elements.removeAll(nullSet) //测试过，这样就行
 
             } else if (split == '.') { //选择
 
@@ -435,7 +460,7 @@ class AnalyzeByJSoup(doc: Any) {
                                 }
 
                                 if (rl == '[') {
-                                    beforeRule = rus.substring(0, len) //遇到索引边界，返回结果
+                                    beforeRule = rus.take(len) //遇到索引边界，返回结果
                                     return
                                 }
 
@@ -463,7 +488,7 @@ class AnalyzeByJSoup(doc: Any) {
 
                         if (rl != ':') { //rl == '!'  || rl == '.'
                             split = rl
-                            beforeRule = rus.substring(0, len)
+                            beforeRule = rus.take(len)
                             return
                         }
 

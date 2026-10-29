@@ -7,9 +7,12 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @SuppressWarnings({"FieldCanBeLocal", "StatementWithEmptyBody", "unused"})
 public class QueryTTF {
@@ -222,7 +225,7 @@ public class QueryTTF {
     private final MaxpLayout maxp = new MaxpLayout();
     private final List<Integer> loca = new LinkedList<>();
     private final CmapLayout Cmap = new CmapLayout();
-    private final List<GlyfLayout> glyf = new LinkedList<>();
+    private final List<String> glyphById = new ArrayList<>();
     @SuppressWarnings("unchecked")
     private final Pair<Integer, Integer>[] pps = new Pair[]{
             Pair.of(3, 10),
@@ -235,6 +238,9 @@ public class QueryTTF {
 
     public final Map<Integer, String> codeToGlyph = new HashMap<>();
     public final Map<String, Integer> glyphToCode = new HashMap<>();
+    public final Map<Integer, String> unicodeToGlyph = codeToGlyph;
+    public final Map<String, Integer> glyphToUnicode = glyphToCode;
+    public final Map<Integer, Integer> unicodeToGlyphId = new HashMap<>();
     private int limitMix = 0;
     private int limitMax = 0;
 
@@ -409,9 +415,12 @@ public class QueryTTF {
         // 解析表 glyf (字体轮廓数据表)
         for (Directory Temp : directorys) {
             if (Temp.tag.equals("glyf")) {
-                fontReader.index = Temp.offset;
+                for (int i = 0; i < maxp.numGlyphs; ++i) glyphById.add(null);
                 for (int i = 0; i < maxp.numGlyphs; ++i) {
-                    fontReader.index = Temp.offset + loca.get(i);
+                    int glyphStart = Temp.offset + loca.get(i);
+                    int glyphEnd = Temp.offset + loca.get(i + 1);
+                    if (glyphStart >= glyphEnd || glyphStart < 0 || glyphEnd > buffer.length) continue;
+                    fontReader.index = glyphStart;
 
                     short numberOfContours = fontReader.ReadInt16();
                     if (numberOfContours > 0) {
@@ -461,24 +470,28 @@ public class QueryTTF {
 //                            yCoordinates[n] += yCoordinates[n - 1];
 //                        }
 
-                        glyf.add(g);
+                        StringBuilder signature = new StringBuilder();
+                        for (short coordinate : g.xCoordinates) signature.append(coordinate);
+                        for (short coordinate : g.yCoordinates) signature.append(coordinate);
+                        glyphById.set(i, signature.toString());
                     } else {
-                        // 复合字体暂未使用
+                        // 复合/零轮廓字形保留稳定的原始表数据，避免 glyph ID 与列表索引错位。
+                        glyphById.set(
+                                i,
+                                "raw:" + HexFormat.of().formatHex(buffer, glyphStart, glyphEnd)
+                        );
                     }
                 }
             }
         }
 
         // 建立Unicode&Glyph双向表
-        for (int key = 0; key < 130000; ++key) {
-            if (key == 0xFF) key = 0x3400;
+        for (int key = 0; key <= Character.MAX_CODE_POINT; ++key) {
             int gid = getGlyfIndex(key);
             if (gid == 0) continue;
-            StringBuilder sb = new StringBuilder();
-            // 字型数据转String，方便存HashMap
-            for (short b : glyf.get(gid).xCoordinates) sb.append(b);
-            for (short b : glyf.get(gid).yCoordinates) sb.append(b);
-            String val = sb.toString();
+            unicodeToGlyphId.put(key, gid);
+            String val = getGlyfById(gid);
+            if (val == null) continue;
             if (limitMix == 0) limitMix = key;
             limitMax = key;
             codeToGlyph.put(key, val);
@@ -600,5 +613,64 @@ public class QueryTTF {
     public int getCodeByGlyf(String val) {
         //noinspection ConstantConditions
         return glyphToCode.getOrDefault(val, 0);
+    }
+
+    /**
+     * 使用 Unicode 值查询轮廓数据，新 API 名称。
+     */
+    public String getGlyfByUnicode(int unicode) {
+        return unicodeToGlyph.get(unicode);
+    }
+
+    /**
+     * 使用 Unicode 值查询 glyph ID，未映射或保留字形 0 均返回 0。
+     */
+    public int getGlyfIdByUnicode(int unicode) {
+        return unicodeToGlyphId.getOrDefault(unicode, 0);
+    }
+
+    /**
+     * 使用 glyph ID 查询轮廓签名。
+     */
+    public String getGlyfById(int glyphId) {
+        if (glyphId < 0 || glyphId >= glyphById.size()) return null;
+        return glyphById.get(glyphId);
+    }
+
+    /**
+     * 返回字体中实际解析到的 cmap 子表格式。
+     */
+    public Set<Integer> getSupportedCmapFormats() {
+        Set<Integer> formats = new HashSet<>();
+        for (CmapFormat table : Cmap.tables.values()) formats.add(table.format);
+        return formats;
+    }
+
+    /**
+     * 使用轮廓数据反查 Unicode 值，新 API 名称。
+     */
+    public int getUnicodeByGlyf(String glyph) {
+        return glyphToUnicode.getOrDefault(glyph, 0);
+    }
+
+    /**
+     * 判断 Unicode 是否为上游定义的空白字符。
+     */
+    public boolean isBlankUnicode(int unicode) {
+        return switch (unicode) {
+            case 0x0009,
+                    0x0020,
+                    0x00A0,
+                    0x2002,
+                    0x2003,
+                    0x2007,
+                    0x200A,
+                    0x200B,
+                    0x200C,
+                    0x200D,
+                    0x202F,
+                    0x205F -> true;
+            default -> false;
+        };
     }
 }

@@ -1,5 +1,11 @@
 package book.util
 
+import book.model.rule.BookInfoRule
+import book.model.rule.ContentRule
+import book.model.rule.ExploreRule
+import book.model.rule.ReviewRule
+import book.model.rule.SearchRule
+import book.model.rule.TocRule
 import com.google.gson.*
 import com.google.gson.internal.LinkedTreeMap
 import com.google.gson.reflect.TypeToken
@@ -14,7 +20,7 @@ import java.lang.reflect.Type
 import kotlin.math.ceil
 
 
-val GSON: Gson by lazy {
+val INITIAL_GSON: Gson by lazy {
     GsonBuilder()
         .registerTypeAdapter(
             object : TypeToken<Map<String?, Any?>?>() {}.type,
@@ -23,9 +29,48 @@ val GSON: Gson by lazy {
         .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
         //.registerTypeAdapter(Lazy::class.java, LazyAdapter<Any>())
         .registerTypeAdapter(Int::class.java, IntJsonDeserializer())
+        .registerTypeAdapter(String::class.java, StringJsonDeserializer())
         .disableHtmlEscaping()
         .setPrettyPrinting()
         .create()
+}
+
+val GSON: Gson by lazy {
+    INITIAL_GSON.newBuilder()
+        .registerTypeAdapter(ExploreRule::class.java, ExploreRule.jsonDeserializer)
+        .registerTypeAdapter(SearchRule::class.java, SearchRule.jsonDeserializer)
+        .registerTypeAdapter(BookInfoRule::class.java, BookInfoRule.jsonDeserializer)
+        .registerTypeAdapter(TocRule::class.java, TocRule.jsonDeserializer)
+        .registerTypeAdapter(ContentRule::class.java, ContentRule.jsonDeserializer)
+        .registerTypeAdapter(ReviewRule::class.java, ReviewRule.jsonDeserializer)
+        .create()
+}
+
+val GSONStrict: Gson by lazy {
+    GSON.newBuilder()
+        .setStrictness(Strictness.STRICT)
+        .create()
+}
+
+fun <T> ruleJsonDeserializer(
+    ruleClass: Class<T>,
+    fallback: (String) -> T
+): JsonDeserializer<T?> {
+    return JsonDeserializer { json, _, _ ->
+        when {
+            json.isJsonObject -> INITIAL_GSON.fromJson(json, ruleClass)
+            json.isJsonPrimitive -> runCatching {
+                INITIAL_GSON.fromJson(json.asString, ruleClass)
+            }.getOrElse {
+                if (it is JsonSyntaxException || it is ClassCastException) {
+                    fallback(json.asString)
+                } else {
+                    throw it
+                }
+            }
+            else -> null
+        }
+    }
 }
 
 inline fun <reified T> genericType(): Type = object : TypeToken<T>() {}.type
@@ -104,6 +149,20 @@ class IntJsonDeserializer : JsonDeserializer<Int?> {
         }
     }
 
+}
+
+class StringJsonDeserializer : JsonDeserializer<String?> {
+    override fun deserialize(
+        json: JsonElement,
+        typeOfT: Type,
+        context: JsonDeserializationContext?
+    ): String? {
+        return when {
+            json.isJsonPrimitive -> json.asString
+            json.isJsonNull -> null
+            else -> json.toString()
+        }
+    }
 }
 
 class LazyAdapter<T> : JsonDeserializer<Lazy<T>> {

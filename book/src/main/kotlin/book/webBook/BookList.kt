@@ -33,6 +33,7 @@ object BookList {
         )
         debugLog?.log(bookSource.bookSourceUrl, "≡获取成功:${analyzeUrl.ruleUrl}")
         val analyzeRule = AnalyzeRule(variableBook, debugLog,bookSource)
+            .setRuleType(if (isSearch) "SEARCH" else "EXPLORE")
         analyzeRule.setContent(body).setBaseUrl(baseUrl)
         analyzeRule.setRedirectUrl(baseUrl)
         bookSource.bookUrlPattern?.let {

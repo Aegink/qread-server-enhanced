@@ -1,5 +1,7 @@
 package book.model.rule
 
+import book.util.ruleJsonDeserializer
+
 data class SearchRule(
     /**校验关键字**/
     var checkKeyWord: String? = null,
@@ -13,4 +15,10 @@ data class SearchRule(
     override var bookUrl: String? = null,
     override var coverUrl: String? = null,
     override var wordCount: String? = null
-) : BookListRule
+) : BookListRule {
+    companion object {
+        val jsonDeserializer = ruleJsonDeserializer(SearchRule::class.java) {
+            SearchRule(bookList = it)
+        }
+    }
+}

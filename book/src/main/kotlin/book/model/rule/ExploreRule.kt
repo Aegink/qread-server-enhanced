@@ -1,5 +1,6 @@
 package book.model.rule
 
+import book.util.ruleJsonDeserializer
 
 data class ExploreRule(
     override var bookList: String? = null,
@@ -12,4 +13,10 @@ data class ExploreRule(
     override var bookUrl: String? = null,
     override var coverUrl: String? = null,
     override var wordCount: String? = null,
-) : BookListRule
+) : BookListRule {
+    companion object {
+        val jsonDeserializer = ruleJsonDeserializer(ExploreRule::class.java) {
+            ExploreRule(bookList = it)
+        }
+    }
+}

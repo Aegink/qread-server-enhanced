@@ -5,10 +5,12 @@ import book.model.Book
 import book.model.BookChapter
 import book.model.BookSource
 import book.model.rule.ContentRule
+import book.util.AppPattern
 import book.util.HtmlFormatter
 import book.util.NetworkUtils
 import book.webBook.analyzeRule.AnalyzeRule
 import book.webBook.analyzeRule.AnalyzeUrl
+import book.webBook.exception.ContentEmptyException
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
@@ -39,21 +41,10 @@ object BookContent {
         val content = StringBuilder()
         val nextUrlList = arrayListOf(redirectUrl)
         val contentRule = bookSource.getContentRule()
-        val analyzeRule = AnalyzeRule(book,debugLog, bookSource).setContent(body, baseUrl)
+        val analyzeRule = AnalyzeRule(book,debugLog, bookSource).setRuleType("CONTENT").setContent(body, baseUrl)
         analyzeRule.setRedirectUrl(redirectUrl)
         analyzeRule.chapter=bookChapter
         analyzeRule.nextChapterUrl = mNextChapterUrl
-        val titleRule = contentRule.title
-        if (!titleRule.isNullOrBlank()) {
-            val title = analyzeRule.runCatching {
-                getString(titleRule)
-            }.onFailure {
-                Debug.log(bookSource.bookSourceUrl, "获取标题出错, ${it.localizedMessage}")
-            }.getOrNull()
-            if (!title.isNullOrBlank()) {
-                bookChapter.title = title
-            }
-        }
         var contentData = analyzeContent(
             book, baseUrl, redirectUrl, body, contentRule, bookChapter, bookSource, mNextChapterUrl, debugLog = debugLog
         )
@@ -72,7 +63,10 @@ object BookContent {
                     source = bookSource,
                     ruleData = book,
                     headerMapF = bookSource.getHeaderMap(),debugLog = debugLog
-                ).getStrResponseAwait()
+                ).getStrResponseAwait(
+                    jsStr = contentRule.webJs,
+                    sourceRegex = contentRule.sourceRegex
+                )
                 res.body?.let { nextBody ->
                     contentData = analyzeContent(
                         book, nextUrl, res.url, nextBody, contentRule,
@@ -96,7 +90,10 @@ object BookContent {
                             ruleData = book,
                             headerMapF = bookSource.getHeaderMap(),debugLog = debugLog
                         )
-                        val res = analyzeUrl.getStrResponseAwait()
+                        val res = analyzeUrl.getStrResponseAwait(
+                            jsStr = contentRule.webJs,
+                            sourceRegex = contentRule.sourceRegex
+                        )
                         analyzeContent(
                             book, urlStr, res.url, res.body!!, contentRule,
                             bookChapter, bookSource, mNextChapterUrl, false, debugLog = debugLog
@@ -108,16 +105,72 @@ object BookContent {
                 }
             }
         }
+        val subContentRule = contentRule.subContent
+        if (!subContentRule.isNullOrBlank()) {
+            analyzeRule.getString(subContentRule).let { rawContent ->
+                runCatching {
+                    if (book.isOnLineTxt()) {
+                        content.append("\n").append(rawContent)
+                        return@let
+                    }
+                    val subContent = rawContent.trim().let {
+                        if (it.startsWith("http", true)) {
+                            AnalyzeUrl(
+                                mUrl = it,
+                                source = bookSource,
+                                ruleData = book,
+                                chapter = bookChapter,
+                                headerMapF = bookSource.getHeaderMap(),
+                                debugLog = debugLog
+                            ).getStrResponseAwait().body
+                        } else {
+                            it
+                        }
+                    }
+                    when {
+                        book.isAudio() -> bookChapter.putLyric(subContent)
+                        book.isVideo() -> bookChapter.putDanmaku(subContent)
+                    }
+                }.onFailure {
+                    Debug.log(bookSource.bookSourceUrl, "获取副文出错, ${it.localizedMessage}")
+                }
+            }
+        }
         var contentStr = content.toString()
 
         val replaceRegex = contentRule.replaceRegex
         if (!replaceRegex.isNullOrEmpty()) {
+            contentStr = contentStr.split(AppPattern.LFRegex).joinToString("\n") { it.trim() }
             contentStr = analyzeRule.getString(replaceRegex, contentStr)
+            if (book.isOnLineTxt()) {
+                contentStr = contentStr.split(AppPattern.LFRegex).joinToString("\n") { "　　$it" }
+            }
+        }
+        val titleRule = contentRule.title
+        if (!titleRule.isNullOrBlank()) {
+            val title = analyzeRule.runCatching {
+                getString(titleRule)
+            }.onFailure {
+                Debug.log(bookSource.bookSourceUrl, "获取标题出错, ${it.localizedMessage}")
+            }.getOrNull()
+            title?.takeIf { it.isNotBlank() }?.let { extractedTitle ->
+                var resolvedTitle = extractedTitle
+                AppPattern.titleImageRegex.find(extractedTitle)?.let { match ->
+                    val titleText = match.groupValues[1]
+                    resolvedTitle = titleText.ifBlank { bookChapter.title }
+                    bookChapter.imgUrl = match.groupValues[2]
+                }
+                bookChapter.title = resolvedTitle
+                bookChapter.titleMD5 = null
+            }
         }
         debugLog?.log(bookSource.bookSourceUrl, "┌获取章节名称")
         debugLog?.log(bookSource.bookSourceUrl, "└${bookChapter.title}")
         debugLog?.log(bookSource.bookSourceUrl, "┌获取正文内容 (长度：${contentStr.length})")
         debugLog?.log(bookSource.bookSourceUrl, "└\n${contentStr}")
+        if (!bookChapter.isVolume && contentStr.isBlank()) {
+            throw ContentEmptyException("内容为空")
+        }
         return contentStr
     }
 
@@ -134,7 +187,7 @@ object BookContent {
         printLog: Boolean = true,
         debugLog: DebugLog? = null
     ): Pair<String, List<String>> {
-        val analyzeRule = AnalyzeRule(book, debugLog,bookSource)
+        val analyzeRule = AnalyzeRule(book, debugLog,bookSource).setRuleType("CONTENT")
         analyzeRule.setContent(body, baseUrl)
         val rUrl = analyzeRule.setRedirectUrl(redirectUrl)
         analyzeRule.nextChapterUrl = nextChapterUrl
@@ -142,9 +195,11 @@ object BookContent {
         analyzeRule.chapter = chapter
         //获取正文
         var content = analyzeRule.getString(contentRule.content, unescape = false)
-        content = HtmlFormatter.formatKeepImg(content, rUrl)
-        if (content.indexOf('&') > -1) {
-            content = StringEscapeUtils.unescapeHtml4(content)
+        if (!book.isAudio() && !book.isVideo()) {
+            content = HtmlFormatter.formatKeepImg(content, rUrl)
+            if (content.indexOf('&') > -1) {
+                content = StringEscapeUtils.unescapeHtml4(content)
+            }
         }
         //获取下一页链接
         val nextUrlRule = contentRule.nextContentUrl

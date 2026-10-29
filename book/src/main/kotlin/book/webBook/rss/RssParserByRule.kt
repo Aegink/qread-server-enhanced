@@ -36,7 +36,7 @@ object RssParserByRule {
             return RssParserDefault.parseXML(sortName, body, sourceUrl,rssSource.userid?:"",debugLogger)
         } else {
             val articleList = mutableListOf<RssArticle>()
-            val analyzeRule = AnalyzeRule(ruleData,debugLogger, rssSource)
+            val analyzeRule = AnalyzeRule(ruleData,debugLogger, rssSource).setRuleType("RSS")
             analyzeRule.setContent(body).setBaseUrl(sortUrl)
             analyzeRule.setRedirectUrl(redirectUrl)
             var reverse = false
@@ -67,7 +67,7 @@ object RssParserByRule {
             val variable = ruleData.getVariable()
             for ((index, item) in collections.withIndex()) {
                 getItem(
-                    sourceUrl,rssSource.userid?:"", item, analyzeRule, variable, index == 0,
+                    sourceUrl,rssSource.userid?:"", item, analyzeRule, variable, rssSource.type, index == 0,
                     ruleTitle, rulePubDate, ruleDescription, ruleImage, ruleLink,debugLogger
                 )?.let {
                     it.sort = sortName
@@ -89,6 +89,7 @@ object RssParserByRule {
         item: Any,
         analyzeRule: AnalyzeRule,
         variable: String?,
+        type: Int,
         log: Boolean,
         ruleTitle: List<AnalyzeRule.SourceRule>,
         rulePubDate: List<AnalyzeRule.SourceRule>,
@@ -120,6 +121,7 @@ object RssParserByRule {
         debugLogger?.log(sourceUrl, "┌获取文章链接", log)
         rssArticle.link = NetworkUtils.getAbsoluteURL(sourceUrl, analyzeRule.getString(ruleLink))
         debugLogger?.log(sourceUrl, "└${rssArticle.link}", log)
+        rssArticle.type = type
         if (rssArticle.title.isBlank()) {
             return null
         }

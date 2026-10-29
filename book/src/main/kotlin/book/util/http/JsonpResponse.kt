@@ -1,16 +1,21 @@
 package book.util.http
 
 import book.util.Base64
-import com.google.gson.Gson
 import org.jsoup.Connection
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import java.io.BufferedInputStream
+import java.io.ByteArrayInputStream
+import java.net.URI
 import java.net.URL
 import java.nio.charset.Charset
 import java.util.*
 
 class JsonpResponse : Connection.Response {
+
+    private var responseCharset: String? = null
+    private val responseCookies = linkedMapOf<String, String>()
+    private val removedCookies = hashSetOf<String>()
 
     var url: String = ""
 
@@ -25,51 +30,36 @@ class JsonpResponse : Connection.Response {
     var statusMessage:String=""
 
     override fun url(): URL {
-        return URL(url)
+        return URI.create(url).toURL()
     }
 
     override fun url(url: URL): Connection.Response {
-        return url.openConnection() as Connection.Response
+        this.url = url.toString()
+        return this
     }
 
     override fun method(): Connection.Method {
-        if(method.lowercase()=="get"){
-            return Connection.Method.GET
-        }else if(method.lowercase()=="post"){
-            return Connection.Method.POST
-        }else if(method.lowercase()=="delete"){
-            return Connection.Method.DELETE
-        }else if(method.lowercase()=="patch"){
-            return Connection.Method.PATCH
-        }else if(method.lowercase()=="head"){
-            return Connection.Method.HEAD
-        }else{
-            throw Exception("method error")
-        }
+        return runCatching { Connection.Method.valueOf(method.uppercase(Locale.ROOT)) }
+            .getOrElse { throw IllegalStateException("不支持的 HTTP 方法: $method", it) }
     }
 
     override fun method(method: Connection.Method): Connection.Response {
-       return url(url()).method(method)
+        this.method = method.name
+        return this
     }
 
     override fun header(name: String): String? {
-        var value : String? = null
-        headers.forEach{
-            kotlin.runCatching {
-                if(it.key.lowercase()==name.lowercase()){
-                    value = it.value.first()
-                }
-            }
-        }
-        return  value
+        return findHeaderKey(name)?.let { headers[it]?.firstOrNull() }
     }
 
     override fun header(name: String, value: String): Connection.Response {
-        TODO("Not yet implemented")
+        val key = findHeaderKey(name) ?: name
+        headers[key] = mutableListOf(value)
+        return this
     }
 
     override fun headers(name: String): MutableList<String> {
-        return  headers[name]?.toMutableList() ?: mutableListOf()
+        return findHeaderKey(name)?.let { headers[it]?.toMutableList() } ?: mutableListOf()
     }
 
     override fun headers(): MutableMap<String, String> {
@@ -83,25 +73,30 @@ class JsonpResponse : Connection.Response {
     }
 
     override fun addHeader(name: String, value: String): Connection.Response {
-        TODO("Not yet implemented")
+        val key = findHeaderKey(name) ?: name
+        headers.getOrPut(key) { mutableListOf() }.let { values ->
+            headers[key] = values.toMutableList().apply { add(value) }
+        }
+        return this
     }
 
     override fun hasHeader(name: String): Boolean {
-        return  headers.containsKey(name)
+        return findHeaderKey(name) != null
     }
 
     override fun hasHeaderWithValue(name: String, value: String): Boolean {
-        return  hasHeader(name) && header(name) == value
+        return headers(name).any { it.equals(value, ignoreCase = true) }
     }
 
     override fun removeHeader(name: String): Connection.Response {
-        TODO("Not yet implemented")
+        findHeaderKey(name)?.let(headers::remove)
+        return this
     }
 
     override fun multiHeaders(): MutableMap<String, MutableList<String>> {
-        var  newh:MutableMap<String, MutableList<String>> = mutableMapOf()
+        val newh:MutableMap<String, MutableList<String>> = mutableMapOf()
         headers.forEach{
-            newh[it.key]=it.value.toMutableList() ?: mutableListOf()
+            newh[it.key]=it.value.toMutableList()
         }
         return  newh
     }
@@ -111,7 +106,9 @@ class JsonpResponse : Connection.Response {
     }
 
     override fun cookie(name: String, value: String): Connection.Response {
-        TODO("Not yet implemented")
+        responseCookies[name] = value
+        removedCookies.remove(name)
+        return this
     }
 
     override fun hasCookie(name: String): Boolean {
@@ -119,24 +116,24 @@ class JsonpResponse : Connection.Response {
     }
 
     override fun removeCookie(name: String): Connection.Response {
-        TODO("Not yet implemented")
+        responseCookies.remove(name)
+        removedCookies.add(name)
+        return this
     }
 
     override fun cookies(): MutableMap<String, String> {
-       var cookieMap=mutableMapOf<String,String>()
-       headers.forEach {it1->
-           if(it1.key.lowercase()=="set-cookie"){
-              it1.value.forEach{
-                  val pos = it.indexOf('=')
-                  var value =if (pos != -1 && pos+1 != it.length ) it.substring(pos+1, it.length) else ""
-                  val key = if (pos != -1 && pos != 0 ) it.substring(0, pos) else ""
-                  if (value.isNotBlank() || value.trim { it <= ' ' } == "null") {
-                      value=""
-                  }
-                  cookieMap[key.trim()] = value.trim { it <= ' ' }
-              }
-           }
-       }
+        val cookieMap = linkedMapOf<String, String>()
+        findHeaderKey("Set-Cookie")?.let { key ->
+            headers[key].orEmpty().forEach { header ->
+                val pair = header.substringBefore(';')
+                val separator = pair.indexOf('=')
+                if (separator > 0) {
+                    cookieMap[pair.substring(0, separator).trim()] = pair.substring(separator + 1).trim()
+                }
+            }
+        }
+        cookieMap.putAll(responseCookies)
+        removedCookies.forEach(cookieMap::remove)
         return cookieMap
     }
 
@@ -149,25 +146,22 @@ class JsonpResponse : Connection.Response {
     }
 
     override fun charset(): String? {
-        return Charset.defaultCharset().name()
+        responseCharset?.let { return it }
+        val match = contentType()?.let { CHARSET_PATTERN.find(it) }
+        return match?.groupValues?.getOrNull(1)?.trim()?.takeIf(String::isNotEmpty)
     }
 
     override fun charset(charset: String): Connection.Response {
-        TODO("Not yet implemented")
+        responseCharset = Charset.forName(charset).name()
+        return this
     }
 
     override fun contentType(): String? {
-        var contentType : String? = null
-        headers.forEach {
-            if(it.key.lowercase()=="content-type"){
-                contentType=it.value.first().toString()
-            }
-        }
-       return contentType
+        return header("Content-Type")
     }
 
     override fun parse(): Document {
-        TODO("Not yet implemented")
+        return Jsoup.parse(body, url)
     }
 
     override fun body(): String {
@@ -175,15 +169,23 @@ class JsonpResponse : Connection.Response {
     }
 
     override fun bodyAsBytes(): ByteArray {
-        return body.toByteArray()
+        val charset = charset()?.let(Charset::forName) ?: Charsets.UTF_8
+        return body.toByteArray(charset)
     }
 
     override fun bufferUp(): Connection.Response {
-        TODO("Not yet implemented")
+        return this
     }
 
     override fun bodyStream(): BufferedInputStream {
-        TODO("Not yet implemented")
+        return BufferedInputStream(ByteArrayInputStream(bodyAsBytes()))
+    }
+
+    private fun findHeaderKey(name: String): String? =
+        headers.keys.firstOrNull { it.equals(name, ignoreCase = true) }
+
+    companion object {
+        private val CHARSET_PATTERN = Regex("(?i)(?:^|;)\\s*charset\\s*=\\s*[\\\"']?([^;\\\"']+)")
     }
 }
 
@@ -208,24 +210,22 @@ data class  MyResponse (
         val mybody=Base64.decode(body,Base64.DEFAULT)
         val contentType=response.contentType()
         var encoding = "utf-8"
-        if (contentType != null ) {
-            if( contentType.contains("charset=")){
-                contentType.let {
-                    if (it.contains("charset=")) {
-                        encoding = it.split("charset=")[1]
-                            .trim()
-                            .lowercase()
-                    }
-                }
-            }else if( contentType.contains("html")){
-                var str=String(mybody)
-               if (str.contains("gb2312") || str.contains("GB2312") || str.contains("GBK") || str.contains("gbk")) {
+        if (contentType != null) {
+            response.charset()?.let { encoding = it }
+            if (!contentType.contains("charset=", ignoreCase = true) && contentType.contains("html", ignoreCase = true)) {
+                val str = String(mybody, Charsets.ISO_8859_1)
+                if (str.contains("gb2312", ignoreCase = true) || str.contains("gbk", ignoreCase = true)) {
                    encoding = "gbk"
                }
             }
-
         }
-        response.body=text(mybody,encoding)
+        val charset = if (encoding.equals("gb2312", ignoreCase = true)) {
+            Charset.forName("GBK")
+        } else {
+            runCatching { Charset.forName(encoding) }.getOrDefault(Charsets.UTF_8)
+        }
+        response.charset(charset.name())
+        response.body = String(mybody, charset)
        // println(response.body)
         response.statusCode=statusCode
         response.statusMessage=statusMessage
@@ -233,10 +233,11 @@ data class  MyResponse (
     }
 
     fun text(responseBytes: ByteArray ,charsetName: String? ): String {
-       // print(String(responseBytes, Charset.forName(charsetName)))
-        if(charsetName?.lowercase() == "gb2312".lowercase()) {
-            return String(responseBytes,  Charset.forName("gbk"))
+        val charset = if (charsetName.equals("gb2312", ignoreCase = true)) {
+            Charset.forName("GBK")
+        } else {
+            runCatching { Charset.forName(charsetName ?: "UTF-8") }.getOrDefault(Charsets.UTF_8)
         }
-        return String(responseBytes, Charset.forName(charsetName))
+        return String(responseBytes, charset)
     }
 }

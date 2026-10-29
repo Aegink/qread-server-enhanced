@@ -21,83 +21,75 @@ import java.util.*
 import java.util.zip.ZipFile
 private val logger = LoggerFactory.getLogger(EpubFile::class.java)
 
-class EpubFile(var book: Book) {
+class EpubFile(override var book: Book) : CachedLocalBookParser {
     init {
         updateCover()
     }
 
     companion object {
-        private var eFile: EpubFile? = null
+        private val parserCache = LocalBookParserCache(8, ::EpubFile)
 
-        @Synchronized
-        private fun getEFile(book: Book): EpubFile {
-            if (eFile == null || eFile?.book?.bookUrl != book.bookUrl) {
-                eFile = EpubFile(book)
-                //对于Epub文件默认不启用替换
-                // book.setUseReplaceRule(false)
-                return eFile!!
-            }
-            eFile?.book = book
-            return eFile!!
-        }
-
-        @Synchronized
         fun getChapterList(book: Book): ArrayList<BookChapter> {
             if (book.tocUrl.isEmpty()) {
                 book.tocUrl = "spin+toc"
             }
-            val epubFile = getEFile(book)
-            return when (book.tocUrl) {
-                "toc" -> {
-                    logger.info("epubFile.getChapterList")
-                    epubFile.getChapterList()
-                }
-                "spin" -> {
-                    logger.info("epubFile.getChapterListBySpine")
-                    epubFile.getChapterListBySpine()
-                }
-                "spin<toc" -> {
-                    logger.info("epubFile.getChapterListBySpinAndToc true")
-                    epubFile.getChapterListBySpinAndToc(true)
-                }
-                "spin+toc" -> {
-                    logger.info("epubFile.getChapterListBySpinAndToc")
-                    epubFile.getChapterListBySpinAndToc()
-                }
-                "toc+spin" -> {
-                    logger.info("epubFile.getChapterListByTocAndSpin")
-                    epubFile.getChapterListByTocAndSpin()
-                }
-                "toc<spin" -> {
-                    logger.info("epubFile.getChapterListByTocAndSpin true")
-                    epubFile.getChapterListByTocAndSpin(true)
-                }
-                else -> {
-                    logger.info("epubFile.getChapterListBySpinAndToc")
-                    epubFile.getChapterListBySpinAndToc()
+            return parserCache.withParser(book) { epubFile ->
+                when (book.tocUrl) {
+                    "toc" -> {
+                        logger.info("epubFile.getChapterList")
+                        epubFile.getChapterList()
+                    }
+                    "spin" -> {
+                        logger.info("epubFile.getChapterListBySpine")
+                        epubFile.getChapterListBySpine()
+                    }
+                    "spin<toc" -> {
+                        logger.info("epubFile.getChapterListBySpinAndToc true")
+                        epubFile.getChapterListBySpinAndToc(true)
+                    }
+                    "spin+toc" -> {
+                        logger.info("epubFile.getChapterListBySpinAndToc")
+                        epubFile.getChapterListBySpinAndToc()
+                    }
+                    "toc+spin" -> {
+                        logger.info("epubFile.getChapterListByTocAndSpin")
+                        epubFile.getChapterListByTocAndSpin()
+                    }
+                    "toc<spin" -> {
+                        logger.info("epubFile.getChapterListByTocAndSpin true")
+                        epubFile.getChapterListByTocAndSpin(true)
+                    }
+                    else -> {
+                        logger.info("epubFile.getChapterListBySpinAndToc")
+                        epubFile.getChapterListBySpinAndToc()
+                    }
                 }
             }
         }
 
-        @Synchronized
         fun getContent(book: Book, chapter: BookChapter): String? {
-            return getEFile(book).getContent(chapter)
+            return parserCache.withParser(book) { it.getContent(chapter) }
         }
 
-        @Synchronized
         fun getImage(
             book: Book,
             href: String
         ): InputStream? {
-            return getEFile(book).getImage(href)
+            return parserCache.withParser(book) { it.getImage(href) }
         }
 
-        @Synchronized
         fun upBookInfo(book: Book, onlyCover: Boolean = false) {
-            if (onlyCover) {
-                return getEFile(book).updateCover()
+            parserCache.withParser(book) {
+                if (onlyCover) {
+                    it.updateCover()
+                } else {
+                    it.upBookInfo()
+                }
             }
-            return getEFile(book).upBookInfo()
+        }
+
+        fun remove(book: Book) {
+            parserCache.remove(book)
         }
     }
 
@@ -111,38 +103,12 @@ class EpubFile(var book: Book) {
             return field
         }
 
-    init {
-        try {
-            epubBook?.let {
-                // if (book.coverUrl.isNullOrEmpty()) {
-                //     book.coverUrl = FileUtils.getPath(
-                //         appCtx.externalFiles,
-                //         "covers",
-                //         "${MD5Utils.md5Encode16(book.bookUrl)}.jpg"
-                //     )
-                // }
-                // if (!File(book.coverUrl!!).exists()) {
-                //     /*部分书籍DRM处理后，封面获取异常，待优化*/
-                //     it.coverImage?.inputStream?.use { input ->
-                //         val cover = BitmapFactory.decodeStream(input)
-                //         val out = FileOutputStream(FileUtils.createFileIfNotExist(book.coverUrl!!))
-                //         cover.compress(Bitmap.CompressFormat.JPEG, 90, out)
-                //         out.flush()
-                //         out.close()
-                //     }
-                // }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
     /*重写epub文件解析代码，直接读出压缩包文件生成Resources给epublib，这样的好处是可以逐一修改某些文件的格式错误*/
     private fun readEpub(): EpubBook? {
         try {
             val file = book.getLocalFile()
             //通过懒加载读取epub
-            return EpubReader().readEpubLazy(ZipFile(file), "utf-8")
+            return ZipFile(file).use { EpubReader().readEpubLazy(it, "utf-8") }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -238,53 +204,6 @@ class EpubFile(var book: Book) {
         return HtmlFormatter.formatKeepImg(html)
     }
 
-    private fun getContent2(chapter: BookChapter): String? {
-        /**
-         * <image width="1038" height="670" xlink:href="..."/>
-         * ...titlepage.xhtml
-         */
-        if (chapter.url.contains("titlepage.xhtml")) {
-            return "<img src=\"cover.jpeg\" />"
-        }
-        /*获取当前章节文本*/
-        epubBook?.let { epubBook ->
-            val nextUrl = chapter.getVariable("nextUrl")
-            val startFragmentId = chapter.startFragmentId
-            val endFragmentId = chapter.endFragmentId
-            val elements = Elements()
-            var isChapter = false
-            /*一些书籍依靠href索引的resource会包含多个章节，需要依靠fragmentId来截取到当前章节的内容*/
-            /*注:这里较大增加了内容加载的时间，所以首次获取内容后可存储到本地cache，减少重复加载*/
-            for (res in epubBook.contents) {
-                if (chapter.url.substringBeforeLast("#") == res.href) {
-                   // println(startFragmentId)
-                   // println(endFragmentId)
-                    elements.add(getBody(res, startFragmentId, endFragmentId))
-                    isChapter = true
-                    /**
-                     * fix https://github.com/gedoor/legado/issues/1927 加载全部内容的bug
-                     * content src text/000001.html（当前章节）
-                    -                   * content src text/000001.html#toc_id_x (下一章节）
-                     */
-                    if (res.href == nextUrl?.substringBeforeLast("#")) break
-                } else if (isChapter) {
-                    // fix 最后一章存在多个html时 内容缺失
-                    if (res.href == nextUrl?.substringBeforeLast("#")) {
-                        break
-                    }
-                    elements.add(getBody(res, startFragmentId, endFragmentId))
-                }
-            }
-            var html = elements.outerHtml()
-            val tag = Book.rubyTag
-            if (book.getDelTag(tag)) {
-                html = html.replace("<ruby>\\s?([\\u4e00-\\u9fa5])\\s?.*?</ruby>".toRegex(), "$1")
-            }
-            return HtmlFormatter.formatKeepImg(html)
-        }
-        return null
-    }
-
     private fun getBody(res: Resource, startFragmentId: String?, endFragmentId: String?): Element {
         val body = Jsoup.parse(String(res.data, mCharset)).body()
         if (!startFragmentId.isNullOrBlank()) {
@@ -321,7 +240,7 @@ class EpubFile(var book: Book) {
 
     private fun upBookInfo() {
         if (epubBook == null) {
-            eFile = null
+            parserCache.remove(book)
             book.intro = "书籍导入异常"
         } else {
             val metadata = epubBook!!.metadata
@@ -344,13 +263,14 @@ class EpubFile(var book: Book) {
     }
 
     fun updateCover() {
+        val coverBytes = epubBook?.coverImage?.data ?: return
         val coverFile = "${MD5Utils.md5Encode16(book.bookUrl)}.jpg"
         val relativeCoverUrl = Paths.get("assets", book.getUserNameSpace(), "covers", coverFile).toString()
-        book.coverUrl = "/" + relativeCoverUrl
         val coverUrl = Paths.get(book.workRoot(), "storage", relativeCoverUrl).toString()
-        if (!File(coverUrl).exists()) {
-            FileUtils.writeBytes(coverUrl, epubBook!!.coverImage.data)
+        if (!File(coverUrl).exists() && !FileUtils.writeBytes(coverUrl, coverBytes)) {
+            return
         }
+        book.coverUrl = "/${relativeCoverUrl.replace(File.separatorChar, '/')}"
         // 保存 cover
         // val cover = epubBook!!.coverImage?.href
         // if (cover != null) {

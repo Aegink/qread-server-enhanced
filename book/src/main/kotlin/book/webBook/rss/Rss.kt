@@ -29,7 +29,7 @@ class Rss (var debugLogger: DebugLog? = null){
             hasLoginHeader = false,
             debugLog = debugLogger
         )
-        val res = analyzeUrl.getStrResponseAwait()
+        val res = requestWithLoginCheck(analyzeUrl, rssSource)
         checkRedirect(rssSource, res)
         return RssParserByRule.parseXML(sortName, sortUrl, res.url, res.body, rssSource, ruleData,debugLogger=debugLogger)
     }
@@ -48,13 +48,13 @@ class Rss (var debugLogger: DebugLog? = null){
             hasLoginHeader = false,
             debugLog = debugLogger
         )
-        val res = analyzeUrl.getStrResponseAwait()
+        val res = requestWithLoginCheck(analyzeUrl, rssSource)
         checkRedirect(rssSource, res)
         debugLogger?.log(rssSource.sourceUrl, "≡获取成功:${rssSource.sourceUrl}")
         if(debugLogger != null){
             debugLogger?.log("正文源码Qwq${res.body}");
         }
-        val analyzeRule = AnalyzeRule(rssArticle,debugLogger, rssSource)
+        val analyzeRule = AnalyzeRule(rssArticle,debugLogger, rssSource).setRuleType("RSS")
         analyzeRule.setContent(res.body)
             .setBaseUrl(NetworkUtils.getAbsoluteURL(rssArticle.origin, rssArticle.link))
             .setCoroutineContext(coroutineContext)
@@ -73,5 +73,25 @@ class Rss (var debugLogger: DebugLog? = null){
                 debugLogger?.log(rssSource.sourceUrl, "└${response.url}")
             }
         }
+    }
+
+    private suspend fun requestWithLoginCheck(analyzeUrl: AnalyzeUrl, rssSource: RssSource): StrResponse {
+        val checkJs = rssSource.loginCheckJs
+        return runCatching {
+            applyLoginCheck(analyzeUrl, analyzeUrl.getStrResponseAwait(), checkJs)
+        }.getOrElse { throwable ->
+            if (checkJs.isNullOrBlank()) throw throwable
+            val checked = runCatching {
+                applyLoginCheck(analyzeUrl, analyzeUrl.getErrStrResponse(throwable), checkJs)
+            }.getOrNull()
+            if (checked == null || checked.code() == 500) throw throwable
+            checked
+        }
+    }
+
+    private fun applyLoginCheck(analyzeUrl: AnalyzeUrl, response: StrResponse, checkJs: String?): StrResponse {
+        if (checkJs.isNullOrBlank()) return response
+        return analyzeUrl.evalJS(checkJs, response) as? StrResponse
+            ?: error("loginCheckJs 必须返回 StrResponse")
     }
 }

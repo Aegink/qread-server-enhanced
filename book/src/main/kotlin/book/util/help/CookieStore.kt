@@ -2,7 +2,6 @@
 package book.util.help
 
 
-import book.util.GSON
 import book.util.NetworkUtils
 import book.util.TextUtils
 import book.util.has
@@ -91,7 +90,7 @@ class CookieStore(val userid:String) : CookieManager {
         if(cookieString != null){
             replaceCookie(url, cookieString)
         }
-        logger.info("savejsonResponse $url, $cookieString,${GSON.toJson(response.cookies())}")
+        logger.debug("savejsonResponse domain:${getkey(url)}, cookieLength:${cookieString?.length ?: 0}")
     }
 
     fun saveResponse(response: Response) {
@@ -126,7 +125,7 @@ class CookieStore(val userid:String) : CookieManager {
     }
 
     override fun setCookie(url: String, cookie: String?) {
-        logger.info("setCookie url:$url，cookie:$cookie")
+        logger.debug("setCookie domain:${getkey(url)}, cookieLength:${cookie?.length ?: 0}")
         val key=getkey(url)
         Cookiecaches.set("$userid$key",cookie);
         File("$mycookiepath/$key").writeText(cookie?:"")
@@ -150,7 +149,7 @@ class CookieStore(val userid:String) : CookieManager {
     fun getKey(tag: String, key: String? = null): String {
         val cookie = this.getCookie(tag)
         val cookieMap = this.cookieToMap(cookie)
-        logger.info("tag:$tag, key:$key ")
+        logger.debug("getKey domain:${getkey(tag)}, hasKey:${key != null}")
         return if (key != null) {
             cookieMap[key] ?: ""
         } else {
@@ -188,7 +187,6 @@ class CookieStore(val userid:String) : CookieManager {
         if(Cookiecaches.has("$userid$key")){
             return  Cookiecaches.get("$userid$key")?:""
         }
-        logger.info("cookie url:$key")
         var ck=""
         runCatching {
             ck =  File("$mycookiepath/$key").readText()
@@ -198,7 +196,6 @@ class CookieStore(val userid:String) : CookieManager {
 
 
     override fun getCookie(url: String): String {
-        logger.info("getCookie:$url")
         var ck=getcookie(url)
         val cookieMap=cookieToMap(ck)
         while (ck.length > 4096) {
@@ -221,7 +218,7 @@ class CookieStore(val userid:String) : CookieManager {
     }
 
     override fun removeCookie(url: String) {
-        logger.info("removeCookie :$url")
+        logger.debug("removeCookie domain:${getkey(url)}")
         val key=getkey(url)
         Cookiecaches.remove("$userid$key")
         val file =  File("$mycookiepath/$key")

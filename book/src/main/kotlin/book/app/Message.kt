@@ -10,6 +10,7 @@ data class WebMessage (
     val id: String,
     val urlregex: String="",
     val overrideUrlRegex: String="",
+    val delayTime: Long = 0,
 )
 
 data class ToastMessage (

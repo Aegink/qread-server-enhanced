@@ -17,20 +17,17 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.jsoup.Connection
 import org.jsoup.Jsoup
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.URLEncoder
 import java.nio.charset.Charset
 import java.util.*
-import java.util.zip.ZipEntry
-import java.util.zip.ZipInputStream
 import java.text.SimpleDateFormat
 import cn.hutool.core.util.HexUtil
 import com.script.ScriptBindings
 import org.slf4j.Logger
 import java.io.FileOutputStream
 import java.nio.file.Paths
+import java.security.MessageDigest
 import java.time.LocalDateTime
 import kotlin.collections.set
 import kotlin.concurrent.thread
@@ -48,6 +45,8 @@ interface JsExtensions: JsEncodeUtils  {
     var debugLog: DebugLog?
 
     fun getSource(): BaseSource?
+
+    fun getTag(): String? = getSource()?.getTag()
 
     fun androidId(): String {
         return md5Encode(getSource()?.userid?:"")
@@ -73,11 +72,24 @@ interface JsExtensions: JsEncodeUtils  {
      * 访问网络,返回String
      */
     fun ajax(urlStr: String): String? {
+        return ajax(urlStr, null)
+    }
+
+    fun ajax(url: Any?, callTimeout: Long?): String? {
+        val urlStr = when (url) {
+            is List<*> -> url.firstOrNull()?.toString().orEmpty()
+            else -> url?.toString().orEmpty()
+        }
         logger.info("ajax url: $urlStr")
         return runBlocking {
             runCatching {
-                val analyzeUrl = AnalyzeUrl(urlStr, source = getSource(),debugLog = debugLog)
-                analyzeUrl.getStrResponse(urlStr).body
+                val analyzeUrl = AnalyzeUrl(
+                    urlStr,
+                    source = getSource(),
+                    debugLog = debugLog,
+                    callTimeout = callTimeout
+                )
+                analyzeUrl.getStrResponse().body
             }.onFailure {
                 it.printOnDebug()
             }.getOrElse {
@@ -105,6 +117,30 @@ interface JsExtensions: JsEncodeUtils  {
         }
     }
 
+    fun ajaxTestAll(urlList: Array<String>, timeout: Int): Array<StrResponse> {
+        return ajaxTestAll(urlList, timeout, false)
+    }
+
+    fun ajaxTestAll(
+        urlList: Array<String>,
+        timeout: Int,
+        skipRateLimit: Boolean
+    ): Array<StrResponse> {
+        return runBlocking {
+            val asyncArray = Array(urlList.size) { index ->
+                async(IO) {
+                    AnalyzeUrl(
+                        urlList[index],
+                        source = getSource(),
+                        debugLog = debugLog,
+                        callTimeout = timeout.toLong()
+                    ).getStrResponseAwait(isTest = true, skipRateLimit = skipRateLimit)
+                }
+            }
+            Array(urlList.size) { index -> asyncArray[index].await() }
+        }
+    }
+
     /**
      * 访问网络,返回Response<String>
      */
@@ -123,10 +159,20 @@ interface JsExtensions: JsEncodeUtils  {
     }
 
     fun connect(urlStr: String, header: String?): StrResponse {
+        return connect(urlStr, header, null)
+    }
+
+    fun connect(urlStr: String, header: String?, callTimeout: Long?): StrResponse {
         logger.info("connect:$urlStr,header:${GSON.toJson(header)}")
         return runBlocking {
             val headerMap = GSON.fromJsonObject<Map<String, String>>(header).getOrNull()
-            val analyzeUrl = AnalyzeUrl(urlStr, headerMapF = headerMap, source = getSource(),debugLog = null)
+            val analyzeUrl = AnalyzeUrl(
+                urlStr,
+                headerMapF = headerMap,
+                source = getSource(),
+                debugLog = null,
+                callTimeout = callTimeout
+            )
             runCatching {
                 analyzeUrl.getStrResponseAwait()
             }.onFailure {
@@ -151,7 +197,7 @@ interface JsExtensions: JsEncodeUtils  {
             }
         }
         val header= GSON.toJson(headerMap)
-        return App.webview(html,url,js,getSource()?.usertocken?:"",header,"","")
+        return App.webview(html,url,js,getSource()?.usertocken?:"",header,"","",0)
     }
 
     fun webViewGetSource(html: String?, url: String?, js: String?, sourceRegex: String): String? {
@@ -168,7 +214,7 @@ interface JsExtensions: JsEncodeUtils  {
             }
         }
         val header= GSON.toJson(headerMap)
-        return App.webview(html,url,js,getSource()?.usertocken?:"",header,sourceRegex,"").body
+        return App.webview(html,url,js,getSource()?.usertocken?:"",header,sourceRegex,"",0).body
     }
 
     /**
@@ -193,7 +239,7 @@ interface JsExtensions: JsEncodeUtils  {
             }
         }
         val header= GSON.toJson(headerMap)
-        return App.webview(html,url,js,getSource()?.usertocken?:"",header,"",overrideUrlRegex).body
+        return App.webview(html,url,js,getSource()?.usertocken?:"",header,"",overrideUrlRegex,0).body
     }
 
     /**
@@ -205,6 +251,10 @@ interface JsExtensions: JsEncodeUtils  {
      */
     fun webView(html: String?, url: String?, js: String?): String? {
         return webview(html,url,js).body
+    }
+
+    fun webView(html: String?, url: String?, js: String?, cacheFirst: Boolean): String? {
+        return webView(html, url, js)
     }
 
 
@@ -444,6 +494,10 @@ interface JsExtensions: JsEncodeUtils  {
      * js实现重定向拦截,网络访问get
      */
     fun get(urlStr: String, headers: Map<String, String>): Connection.Response {
+        return get(urlStr, headers, null)
+    }
+
+    fun get(urlStr: String, headers: Map<String, String>, timeout: Int?): Connection.Response {
         if(getSource()?.phonehttp == true){
             return  getusePhone(urlStr, headers)
         }else{
@@ -457,7 +511,7 @@ interface JsExtensions: JsEncodeUtils  {
                     .followRedirects(false)
                     .headers(requestHeaders)
                     .method(Connection.Method.GET)
-                    .timeout(60000)
+                    .timeout(timeout ?: 60000)
                     .execute()
             }
             val source=getSource()
@@ -488,6 +542,10 @@ interface JsExtensions: JsEncodeUtils  {
      * js实现重定向拦截,网络访问head,不返回Response Body更省流量
      */
     fun head(urlStr: String, headers: Map<String, String>): Connection.Response {
+        return head(urlStr, headers, null)
+    }
+
+    fun head(urlStr: String, headers: Map<String, String>, timeout: Int?): Connection.Response {
         if(getSource()?.phonehttp == true){
             return  headusePhone(urlStr, headers)
         }else{
@@ -501,7 +559,7 @@ interface JsExtensions: JsEncodeUtils  {
                     .followRedirects(false)
                     .headers(requestHeaders)
                     .method(Connection.Method.HEAD)
-                    .timeout(60000)
+                    .timeout(timeout ?: 60000)
                     .execute()
             }
             val source=getSource()
@@ -580,6 +638,15 @@ interface JsExtensions: JsEncodeUtils  {
      * 网络访问post
      */
     fun post(urlStr: String, body: String, headers: Map<String, String>): Connection.Response {
+        return post(urlStr, body, headers, null)
+    }
+
+    fun post(
+        urlStr: String,
+        body: String,
+        headers: Map<String, String>,
+        timeout: Int?
+    ): Connection.Response {
         if(getSource()?.phonehttp == true){
             return postusePhone(urlStr,body,headers)
         }else{
@@ -593,7 +660,7 @@ interface JsExtensions: JsEncodeUtils  {
                     .followRedirects(false)
                     .requestBody(body)
                     .headers(requestHeaders)
-                    .timeout(60000)
+                    .timeout(timeout ?: 60000)
                     .method(Connection.Method.POST)
                     .execute()
             }
@@ -841,22 +908,38 @@ interface JsExtensions: JsEncodeUtils  {
     }
 
     /**
-     * js实现压缩文件解压
+     * js实现Zip压缩文件解压
      * @param zipPath 相对路径
      * @return 相对路径
      */
     fun unzipFile(zipPath: String): String {
+        return unArchiveFile(zipPath)
+    }
+
+    fun un7zFile(zipPath: String): String {
+        return unArchiveFile(zipPath)
+    }
+
+    fun unrarFile(zipPath: String): String {
+        return unArchiveFile(zipPath)
+    }
+
+    fun unArchiveFile(zipPath: String): String {
         if (zipPath.isEmpty()) return ""
+        val cacheRoot = File(FileUtils.getCachePath(getSource()?.userid ?: "")).canonicalFile
+        val zipFile = getFile(zipPath).canonicalFile
+        val isInsideCache = zipFile.path == cacheRoot.path ||
+            zipFile.path.startsWith(cacheRoot.path + File.separator)
+        require(isInsideCache) { "压缩文件必须位于当前用户缓存目录" }
         val unzipPath = FileUtils.getPath(
-            FileUtils.createFolderIfNotExist(FileUtils.getCachePath(getSource()?.userid?:"")),
+            cacheRoot,
             FileUtils.getNameExcludeExtension(zipPath)
         )
         FileUtils.deleteFile(unzipPath)
-        val zipFile = getFile(zipPath)
         val unzipFolder = FileUtils.createFolderIfNotExist(unzipPath)
-        ZipUtils.unzipFile(zipFile, unzipFolder)
+        ArchiveUtils.extract(zipFile, unzipFolder)
         FileUtils.deleteFile(zipFile.absolutePath)
-        return unzipPath.substring(FileUtils.getCachePath(getSource()?.userid?:"").length)
+        return unzipPath.substring(cacheRoot.path.length)
     }
 
 
@@ -906,26 +989,54 @@ interface JsExtensions: JsEncodeUtils  {
      * @return zip指定文件的数据
      */
     fun getZipByteArrayContent(url: String, path: String): ByteArray? {
+        return getArchiveByteArrayContent(url, path, ArchiveType.ZIP)
+    }
+
+    fun getRarStringContent(url: String, path: String): String {
+        val byteArray = getRarByteArrayContent(url, path) ?: return ""
+        return String(byteArray, Charset.forName(EncodingDetect.getEncode(byteArray)))
+    }
+
+    fun getRarStringContent(url: String, path: String, charsetName: String): String {
+        return getRarByteArrayContent(url, path)?.toString(Charset.forName(charsetName)) ?: ""
+    }
+
+    fun getRarByteArrayContent(url: String, path: String): ByteArray? {
+        return getArchiveByteArrayContent(url, path, ArchiveType.RAR)
+    }
+
+    fun get7zStringContent(url: String, path: String): String {
+        val byteArray = get7zByteArrayContent(url, path) ?: return ""
+        return String(byteArray, Charset.forName(EncodingDetect.getEncode(byteArray)))
+    }
+
+    fun get7zStringContent(url: String, path: String, charsetName: String): String {
+        return get7zByteArrayContent(url, path)?.toString(Charset.forName(charsetName)) ?: ""
+    }
+
+    fun get7zByteArrayContent(url: String, path: String): ByteArray? {
+        return getArchiveByteArrayContent(url, path, ArchiveType.SEVEN_Z)
+    }
+
+    private fun getArchiveByteArrayContent(url: String, path: String, type: ArchiveType): ByteArray? {
         val bytes = if (url.startsWith("http://") || url.startsWith("https://")) {
             runBlocking {
-                return@runBlocking okHttpClient.newCall { url(url) }.bytes()
+                okHttpClient.newCall { url(url) }.use { body ->
+                    body.byteStream().use { input ->
+                        input.readNBytes((ArchiveUtils.MAX_ARCHIVE_BYTES + 1).toInt()).also {
+                            require(it.size.toLong() <= ArchiveUtils.MAX_ARCHIVE_BYTES) {
+                                "压缩文件不能超过 64MB"
+                            }
+                        }
+                    }
+                }
             }
         } else {
             StringUtils.hexStringToByte(url)
         }
-        val bos = ByteArrayOutputStream()
-        val zis = ZipInputStream(ByteArrayInputStream(bytes))
-        var entry: ZipEntry? = zis.nextEntry
-        while (entry != null) {
-            if (entry.name.equals(path)) {
-                zis.use { it.copyTo(bos) }
-                return bos.toByteArray()
-            }
-            entry = zis.nextEntry
+        return ArchiveUtils.readEntry(bytes, type, path).also {
+            if (it == null) Debug.log("压缩文件中未发现内容：$path")
         }
-        Debug.log("getZipContent 未发现内容")
-
-        return null
     }
 
 
@@ -949,28 +1060,44 @@ interface JsExtensions: JsEncodeUtils  {
      * @param str 支持url,本地文件,base64,自动判断,自动缓存
      */
     fun queryTTF(str: String?): QueryTTF? {
-        str ?: return null
-        val key = md5Encode16(str)
-        var qTTF = getSource()!!.getCacheManger().getQueryTTF(key)
-        if (qTTF != null) return qTTF
-        val font: ByteArray? = when {
-            str.isAbsUrl() -> runBlocking {
-                var x = getSource()!!.getCacheManger().getByteArray(key)
-                if (x == null) {
-                    x = okHttpClient.newCall { url(str) }.bytes()
-                    x.let {
-                        getSource()!!.getCacheManger().put(key, it)
-                    }
-                }
-                return@runBlocking x
+        return queryTTF(str as Any?, true)
+    }
+
+    fun queryTTF(data: Any?, useCache: Boolean): QueryTTF? {
+        val bytes: ByteArray
+        val cacheKey: String
+        when (data) {
+            is ByteArray -> {
+                bytes = data
+                cacheKey = digestKey(data)
             }
-            str.indexOf("storage/") > 0 -> File(str).readBytes()
-            else -> base64DecodeToByteArray(str)
+            is String -> {
+                cacheKey = md5Encode16(data)
+                getSource()?.getCacheManger()?.getQueryTTF(cacheKey)
+                    ?.takeIf { useCache }
+                    ?.let { return it }
+                bytes = when {
+                    data.isAbsUrl() -> runBlocking {
+                        AnalyzeUrl(data, source = getSource(), debugLog = debugLog).getByteArrayAwait()
+                    }
+                    data.contains("storage/") && File(data).isFile -> File(data).readBytes()
+                    else -> base64DecodeToByteArray(data) ?: return null
+                }
+            }
+            else -> return null
         }
-        font ?: return null
-        qTTF = QueryTTF(font)
-        getSource()!!.getCacheManger().put(key, qTTF)
-        return qTTF
+        if (useCache) {
+            getSource()?.getCacheManger()?.getQueryTTF(cacheKey)?.let { return it }
+        }
+        return QueryTTF(bytes).also {
+            if (useCache) getSource()?.getCacheManger()?.put(cacheKey, it)
+        }
+    }
+
+    private fun digestKey(bytes: ByteArray): String {
+        return MessageDigest.getInstance("SHA-256")
+            .digest(bytes)
+            .joinToString("") { "%02x".format(it) }
     }
 
 
@@ -984,16 +1111,24 @@ interface JsExtensions: JsEncodeUtils  {
         font1: QueryTTF?,
         font2: QueryTTF?
     ): String {
+        return replaceFont(text, font1, font2, false)
+    }
+
+    fun replaceFont(
+        text: String,
+        font1: QueryTTF?,
+        font2: QueryTTF?,
+        filter: Boolean
+    ): String {
         if (font1 == null || font2 == null) return text
-        val contentArray = text.toCharArray()
-        contentArray.forEachIndexed { index, s ->
-            val oldCode = s.code
-            if (font1.inLimit(s)) {
-                val code = font2.getCodeByGlyf(font1.getGlyfByCode(oldCode))
-                if (code != 0) contentArray[index] = code.toChar()
-            }
-        }
-        return contentArray.joinToString("")
+        return text.toStringArray().mapNotNull { character ->
+            val codePoint = character.codePointAt(0)
+            if (font1.isBlankUnicode(codePoint)) return@mapNotNull character
+            val glyph = font1.getGlyfByUnicode(codePoint)
+            if (glyph == null) return@mapNotNull if (filter) null else character
+            val replacement = font2.getUnicodeByGlyf(glyph)
+            if (replacement == 0) character else String(intArrayOf(replacement), 0, 1)
+        }.joinToString("")
     }
 
     /**
@@ -1023,7 +1158,7 @@ interface JsExtensions: JsEncodeUtils  {
      * 弹窗提示
      */
     fun toast(msg: Any?) {
-        logger.info("toast:$msg")
+        logger.info("toast[${AnalyzeRule.currentRuleTypeThreadLocal.get() ?: "UNKNOWN"}]:$msg")
         App.toast("$msg",getSource()?.usertocken?:"")
     }
 
@@ -1031,7 +1166,7 @@ interface JsExtensions: JsEncodeUtils  {
      * 弹窗提示 停留时间较长
      */
     fun longToast(msg: Any?) {
-        logger.info("longToast:$msg")
+        logger.info("longToast[${AnalyzeRule.currentRuleTypeThreadLocal.get() ?: "UNKNOWN"}]:$msg")
         App.longToast("$msg",getSource()?.usertocken?:"")
     }
 

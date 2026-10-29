@@ -39,7 +39,7 @@ interface BaseSource : JsExtensions {
     var phonehttp: Boolean?
 
 
-    fun getTag(): String
+    override fun getTag(): String
 
     fun getKey(): String
 
@@ -186,8 +186,40 @@ interface BaseSource : JsExtensions {
         RuleBigDataHelp.putSourceVariable(getKey(),userid?:"","sourceVariable",variable)
     }
 
+    fun putVariable(variable: String?) {
+        setVariable(variable)
+    }
+
     fun getVariable(): String {
        return RuleBigDataHelp.getSourceVariable(getKey(),userid?:"","sourceVariable")?:""
+    }
+
+    fun refreshExplore() {
+        RuleBigDataHelp.putSourceVariable(getKey(), userid.orEmpty(), "exploreKinds", null)
+        App.refreshExplore(getKey(), usertocken.orEmpty())
+    }
+
+    fun refreshJSLib() {
+        SharedJsScope.refresh(jsLib, userid)
+    }
+
+    fun putConcurrent(value: String) {
+        concurrentRate = value
+    }
+
+    private fun configureScriptBindings(
+        bindingsConfig: ScriptBindings.() -> Unit
+    ): ScriptBindings.() -> Unit = {
+        put("result", mutableMapOf<String, String>())
+        put("book", null)
+        put("chapter", null)
+        put("java", this@BaseSource)
+        put("source", this@BaseSource)
+        put("baseUrl", getKey())
+        put("cookie", getCookieManger())
+        put("cache", getCacheManger())
+        apply(bindingsConfig)
+        binding(this)
     }
 
     suspend fun runaction(action:String,chapter: Boolean,book: Book? = null){
@@ -204,7 +236,6 @@ interface BaseSource : JsExtensions {
                 put("url", url)
             }.toString()
         }.onFailure {
-            it.printStackTrace()
             App.log("${getTag()}: url跳转拦截js出错:${it.message}",usertocken?:"")
         }.getOrNull()
         return  result
@@ -215,17 +246,7 @@ interface BaseSource : JsExtensions {
      */
     @Throws(Exception::class)
     fun evalJS(jsStr: String, bindingsConfig: ScriptBindings.() -> Unit = {}): Any? {
-        val bindings = buildScriptBindings { bindings ->
-            bindings.apply(bindingsConfig)
-            if (!bindings.containsKey("java")){
-                bindings["java"] = this
-            }
-            bindings["source"] = this
-            bindings["baseUrl"] = getKey()
-            bindings["cookie"] =  getCookieManger()
-            bindings["cache"] = getCacheManger()
-            binding(bindings)
-        }
+        val bindings = buildScriptBindings(configureScriptBindings(bindingsConfig))
         val scope = RhinoScriptEngine.getRuntimeScope(bindings)
         getShareScope()?.let {
             scope.prototype = it
@@ -317,18 +338,18 @@ interface BaseSource : JsExtensions {
 
 
     fun getcookieJarHeaderid():String{
-        return MD5Utils.md5Encode(userid!!)
+        return MD5Utils.md5Encode(userid.orEmpty())
     }
 
 
     fun  getCacheManger() :CacheManager{
-        val store=CacheManager(userid!!)
+        val store=CacheManager(userid.orEmpty())
         return store
     }
 
 
     fun  getCookieManger() :CookieStore{
-        val store=CookieStore(userid!!)
+        val store=CookieStore(userid.orEmpty())
         val key=getcookieJarHeaderid()
         if(!CookieStore.Stores.containsKey(key)){
             CookieStore.Stores.put(key, store)

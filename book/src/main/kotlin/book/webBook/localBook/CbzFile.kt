@@ -3,86 +3,75 @@ package book.webBook.localBook
 import book.model.Book
 import book.model.BookChapter
 import book.util.FileUtils
+import book.util.HtmlFormatter
 import book.util.MD5Utils
 import book.util.getFileExtetion
 import book.util.xml2map
 import java.io.File
-import java.io.InputStream
+import java.io.IOException
 import java.util.*
 import java.nio.file.Paths
 import java.util.zip.ZipFile
 import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 
-class CbzFile(var book: Book) {
+class CbzFile(override var book: Book) : CachedLocalBookParser {
     var info: MutableMap<String, Any>? = null
-    var cover: InputStream? = null
+    var cover: ByteArray? = null
 
     companion object {
-        private var cFile: CbzFile? = null
+        private const val maxImageBytes = 20 * 1024 * 1024
+        private val imageExtensions = setOf("jpg", "jpeg", "gif", "png", "bmp", "webp")
+        private val parserCache = LocalBookParserCache(8, ::CbzFile)
 
-        @Synchronized
-        private fun getCbzFile(book: Book): CbzFile {
-            if (cFile == null || cFile?.book?.bookUrl != book.bookUrl) {
-                cFile = CbzFile(book)
-                return cFile!!
-            }
-            cFile?.book = book
-            return cFile!!
-        }
-
-        @Synchronized
         fun getChapterList(book: Book): ArrayList<BookChapter> {
-            return getCbzFile(book).getChapterList()
+            return parserCache.withParser(book) { it.getChapterList() }
         }
 
-        @Synchronized
         fun getContent(book: Book, chapter: BookChapter): String? {
-            return getCbzFile(book).getContent(chapter)
+            return parserCache.withParser(book) { it.getContent(chapter) }
         }
 
-        @Synchronized
         fun upBookInfo(book: Book, onlyCover: Boolean = false) {
-            if (onlyCover) {
-                return getCbzFile(book).updateCover()
+            parserCache.withParser(book) {
+                if (onlyCover) {
+                    it.updateCover()
+                } else {
+                    it.upBookInfo()
+                }
             }
-            return getCbzFile(book).upBookInfo()
+        }
+
+        fun remove(book: Book) {
+            parserCache.remove(book)
         }
     }
 
-    init {
-    }
-
-    private fun parseBookInfo(): Pair<MutableMap<String, Any>?, InputStream?> {
+    private fun parseBookInfo(): Pair<MutableMap<String, Any>?, ByteArray?> {
         if (cover != null || info != null) {
             return Pair(info, cover)
         }
-        val zf = ZipFile(book.getLocalFile())
-        val entries = zf.entries()
-        val imageExt = listOf("jpg", "jpeg", "gif", "png", "bmp", "webp", "svg")
-
-        while (entries.hasMoreElements()) {
-            val zipEntry: ZipEntry = entries.nextElement() as ZipEntry
-
-            if (!zipEntry.isDirectory) {
-                val name = zipEntry.name
-                if (name.equals("ComicInfo.xml")) {
-                    // 解析书籍信息
-                    var inputStream = zf.getInputStream(zipEntry)
-                    info = xml2map(inputStream)
-                } else if (cover == null) {
-                    // 解析第一张图片
-                    val ext = getFileExtetion(name).lowercase()
-                    if (imageExt.contains(ext)) {
-                        cover = zf.getInputStream(zipEntry)
+        ZipFile(book.getLocalFile()).use { zf ->
+            val entries = zf.entries()
+            while (entries.hasMoreElements()) {
+                val zipEntry: ZipEntry = entries.nextElement() as ZipEntry
+                if (!zipEntry.isDirectory) {
+                    val name = zipEntry.name
+                    if (name == "ComicInfo.xml") {
+                        zf.getInputStream(zipEntry).use { inputStream ->
+                            info = xml2map(inputStream)
+                        }
+                    } else if (cover == null) {
+                        val ext = getFileExtetion(name).lowercase()
+                        if (imageExtensions.contains(ext)) {
+                            cover = zf.getInputStream(zipEntry).use { it.readBytes() }
+                        }
                     }
                 }
-            }
-            if (cover != null && info != null) {
-                break;
+                if (cover != null && info != null) {
+                    break
+                }
             }
         }
-
         return Pair(info, cover)
     }
 
@@ -104,33 +93,57 @@ class CbzFile(var book: Book) {
         val coverUrl = Paths.get(book.workRoot(), "storage", relativeCoverUrl).toString()
         if (!File(coverUrl).exists()) {
             val result = parseBookInfo()
-            if (result.second != null) {
-                val coverStream = result.second as InputStream
-                FileUtils.writeInputStream(coverUrl, coverStream)
+            result.second?.let { coverBytes ->
+                FileUtils.writeBytes(coverUrl, coverBytes)
             }
         }
     }
 
     private fun getContent(chapter: BookChapter): String? {
-        return ""
+        val extension = getFileExtetion(chapter.url).lowercase()
+        if (extension !in imageExtensions) return null
+        val localFile = book.getLocalFile()
+        val bytes = ZipFile(localFile).use { zip ->
+            val entry = zip.getEntry(chapter.url)?.takeUnless { it.isDirectory } ?: return null
+            if (entry.size > maxImageBytes) throw IOException("CBZ 图片超过20MB: ${entry.name}")
+            zip.getInputStream(entry).use { input ->
+                input.readNBytes(maxImageBytes + 1).also {
+                    if (it.size > maxImageBytes) throw IOException("CBZ 图片超过20MB: ${entry.name}")
+                }
+            }
+        }
+        val userKey = MD5Utils.md5Encode16(
+            book.userid.ifBlank { book.getUserNameSpace().ifBlank { "local" } }
+        )
+        val archiveKey = MD5Utils.md5Encode16(
+            "${book.bookUrl}:${localFile.length()}:${localFile.lastModified()}"
+        )
+        val imageName = "${MD5Utils.md5Encode16(chapter.url)}.$extension"
+        val relativePath = Paths.get("assets", userKey, "cbz", archiveKey, imageName).toString()
+        val output = Paths.get(book.workRoot(), "storage", relativePath).toString()
+        if (!File(output).exists() && !FileUtils.writeBytes(output, bytes)) {
+            throw IOException("CBZ 图片写入失败: ${chapter.url}")
+        }
+        val contentUrl = "/${relativePath.replace(File.separatorChar, '/')}"
+        return HtmlFormatter.formatKeepImg("<img src=\"http/$contentUrl\">")
     }
 
     private fun getChapterList(): ArrayList<BookChapter> {
         val chapterList = ArrayList<BookChapter>()
-        val zf = ZipFile(book.getLocalFile())
-        val entries = zf.entries()
-        var imageFileList = arrayListOf<String>();
-        while (entries.hasMoreElements()) {
-            val zipEntry: ZipEntry = entries.nextElement() as ZipEntry
-
-            if (!zipEntry.isDirectory) {
-                val name = zipEntry.name
-                if (!name.endsWith(".xml")) {
-                    // 只获取图片文件
-                    imageFileList.add(name)
+        val imageFileList = arrayListOf<String>()
+        ZipFile(book.getLocalFile()).use { zf ->
+            val entries = zf.entries()
+            while (entries.hasMoreElements()) {
+                val zipEntry: ZipEntry = entries.nextElement() as ZipEntry
+                if (!zipEntry.isDirectory) {
+                    val name = zipEntry.name
+                    if (getFileExtetion(name).lowercase() in imageExtensions) {
+                        imageFileList.add(name)
+                    }
                 }
             }
         }
+
         // 排序
         imageFileList.sort()
         for (i in 0 until imageFileList.size) {

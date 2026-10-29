@@ -46,6 +46,7 @@ val okHttpClient: OkHttpClient by lazy {
         .connectionSpecs(specs)
         .followRedirects(true)
         .followSslRedirects(true)
+        .addInterceptor(DomainCircuitBreakerInterceptor())
         .addInterceptor(OkHttpExceptionInterceptor)
         .addInterceptor(Interceptor { chain ->
             val request = chain.request()

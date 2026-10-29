@@ -1,5 +1,7 @@
 package book.model.rule
 
+import book.util.ruleJsonDeserializer
+
 data class TocRule(
     var preUpdateJs: String? = null,
     var chapterList: String? = null,
@@ -11,4 +13,10 @@ data class TocRule(
     var isPay: String? = null,
     var updateTime: String? = null,
     var nextTocUrl: String? = null
-)
+) {
+    companion object {
+        val jsonDeserializer = ruleJsonDeserializer(TocRule::class.java) {
+            TocRule(chapterList = it)
+        }
+    }
+}

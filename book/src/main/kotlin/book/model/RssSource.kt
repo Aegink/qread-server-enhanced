@@ -77,10 +77,26 @@ data class RssSource(
     var loadWithBaseUrl: Boolean = true,
     /**注入js**/
     var injectJs: String? = null,
+    /**提前预注入js**/
+    var preloadJs: String? = null,
+    /**Web 形式起始页**/
+    var startHtml: String? = null,
+    var startStyle: String? = null,
+    var startJs: String? = null,
+    /**是否输出 Web 日志**/
+    var showWebLog: Boolean = false,
     /*其它规则*/
     /**最后更新时间，用于排序**/
     var lastUpdateTime: Long = 0,
     var customOrder: Int = 0,
+    /**类型 0网页，1图片，2视频**/
+    var type: Int = 0,
+    /**是否启用预加载**/
+    var preload: Boolean = false,
+    /**是否优先加载缓存**/
+    var cacheFirst: Boolean = false,
+    /**搜索 URL**/
+    var searchUrl: String? = null,
     override var userid: String?="",
     override var usertocken: String?="",
 
@@ -137,6 +153,15 @@ data class RssSource(
                 && equal(variableComment, source.variableComment)
                 && equal(style, source.style)
                 && equal(injectJs, source.injectJs)
+                && equal(preloadJs, source.preloadJs)
+                && equal(startHtml, source.startHtml)
+                && equal(startStyle, source.startStyle)
+                && equal(startJs, source.startJs)
+                && showWebLog == source.showWebLog
+                && type == source.type
+                && preload == source.preload
+                && cacheFirst == source.cacheFirst
+                && equal(searchUrl, source.searchUrl)
     }
 
     private fun equal(a: String?, b: String?): Boolean {

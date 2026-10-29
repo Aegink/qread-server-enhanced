@@ -20,7 +20,30 @@ object SharedJsScope {
     private val cacheFolder = File(appCtx.cacheDir, "shareJs")
     private val aCache = ACache.get(cacheFolder)
 
-    private val scopeMap = hashMapOf<String, WeakReference<Scriptable>>()
+    private val scopeMap = SynchronizedLruCache<String, WeakReference<Scriptable>>(16)
+    private val scopeLocks = Array(16) { Any() }
+
+    internal fun cacheSize(): Int = scopeMap.size()
+
+    internal fun clearCache() = scopeMap.clear()
+
+    fun refresh(jsLib: String?, userid: String?) {
+        if (jsLib.isNullOrBlank()) return
+        scopeMap.remove(MD5Utils.md5Encode("$userid:$jsLib"))
+        if (jsLib.isJsonObject()) {
+            val jsMap: Map<String, String> = GSON.fromJson(
+                jsLib,
+                TypeToken.getParameterized(
+                    Map::class.java,
+                    String::class.java,
+                    String::class.java
+                ).type
+            )
+            jsMap.values.filter(String::isAbsUrl).forEach { value ->
+                aCache.remove(MD5Utils.md5Encode("$userid:$value"))
+            }
+        }
+    }
 
     fun getScope(jsLib: String?,userid:String ?): Scriptable? {
         //println("cacheFolder:$cacheFolder")
@@ -28,9 +51,11 @@ object SharedJsScope {
             return null
         }
         val key = MD5Utils.md5Encode("$userid:$jsLib")
-        var scope = scopeMap[key]?.get()
-        if (scope == null) {
-            scope = RhinoScriptEngine.run {
+        scopeMap[key]?.get()?.let { return it }
+        val lock = scopeLocks[(key.hashCode() and Int.MAX_VALUE) % scopeLocks.size]
+        return synchronized(lock) {
+            scopeMap[key]?.get()?.let { return@synchronized it }
+            val scope = RhinoScriptEngine.run {
                 getRuntimeScope(ScriptBindings())
             }
             if (jsLib.isJsonObject()) {
@@ -64,9 +89,9 @@ object SharedJsScope {
             } else {
                 RhinoScriptEngine.eval(jsLib, scope)
             }
-            scopeMap[key] = WeakReference(scope)
+            scopeMap.put(key, WeakReference(scope))
+            scope
         }
-        return scope
     }
 
 }
