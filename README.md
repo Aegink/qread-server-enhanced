@@ -138,7 +138,7 @@ services:
       # =========== admin 用户设置 ===========
       #ADMIN_GONGGAO: 这是一个公告        #填写公告后 app 每次开启时都会弹出
       ADMIN_USERNAME: admin             #后台管理员账户
-      ADMIN_PASSWORD: adminadmin        #后台管理员密码
+      ADMIN_PASSWORD_HASH: 请填写bcrypt哈希 #使用 AdminPasswordTool 生成，禁止填写明文密码
       #3.1.0更新配置信息
       #ADMIN_CODE:                       # 需要填写app管理后台生成的密钥
 
@@ -191,6 +191,9 @@ docker-compose down
 /api/接口版本号/debug       
 /api/接口版本号/rssdebug     
 /api/接口版本号/checkdebug      
+
+# 书源安全
+书源规则为兼容 legado 生态，可执行 Java 和 JavaScript 代码，拥有访问服务端文件、数据与网络的能力。仅允许管理员导入可信来源，并在导入前审查规则内容；不要导入来源不明的书源文件。
 
 # 已知问题
 RSA加密，RSA加密安卓端和JAVA端加密标准不同，所以有可能安卓版本轻阅读能解密的web版本不能解密，如果安卓端能解密的web不行请修改代码
@@ -290,4 +293,3 @@ app 管理仅提供主域名和备用域名，并可以使用别名当做后端�
 ![Image text](https://github.com/autobcb/read/blob/main/png/editsource.jpg?raw=true)
 ![Image text](https://github.com/autobcb/read/blob/main/png/source.jpg?raw=true)
 ![Image text](https://github.com/autobcb/read/blob/main/png/sourcelogin.jpg?raw=true)
-
