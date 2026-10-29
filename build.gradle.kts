@@ -84,11 +84,12 @@ dependencies {
     implementation("com.google.code.gson:gson:2.11.0")
 
     implementation("org.bouncycastle:bcpkix-jdk18on:1.80")
+    testImplementation(kotlin("test"))
 
 
     // 网络
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.squareup.okhttp3:logging-interceptor:4.1.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
     implementation("org.apache.xmlgraphics:fop:2.11")
     implementation("org.apache.xmlgraphics:batik-all:1.19")
@@ -102,6 +103,10 @@ tasks.withType<JavaCompile> {
 }
 tasks.withType<KotlinCompile> {
     compilerOptions.javaParameters = true
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 tasks {

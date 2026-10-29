@@ -34,7 +34,7 @@ dependencies {
 
     // 网络
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.squareup.okhttp3:logging-interceptor:4.1.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
     //加解密类库
     implementation("cn.hutool:hutool-crypto:5.8.22")
@@ -44,6 +44,10 @@ dependencies {
     implementation("org.mozilla:rhino:1.8.0")
     implementation(files("src/lib/xmlpull-1.1.3.1.jar"))
     implementation("org.apache.commons:commons-text:1.13.0")
+    implementation("org.apache.commons:commons-compress:1.27.1")
+    implementation("org.tukaani:xz:1.10")
+    implementation("com.github.junrar:junrar:7.5.5")
+    implementation("org.apache.pdfbox:pdfbox:3.0.3")
     implementation("com.github.liuyueyi:quick-transfer-core:0.2.16")
     testImplementation(kotlin("test"))
 }
@@ -57,5 +61,5 @@ tasks.test {
     useJUnitPlatform()
 }
 kotlin {
-    jvmToolchain(19)
+    jvmToolchain(21)
 }

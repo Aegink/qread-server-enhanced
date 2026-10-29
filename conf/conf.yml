@@ -2,12 +2,15 @@ solon.dataSources:
   db:
     class: "com.zaxxer.hikari.HikariDataSource"
     driverClassName: org.sqlite.JDBC
-    jdbcUrl: jdbc:sqlite:read.db
-    maxPoolSize: 1
+    jdbcUrl: jdbc:sqlite:read.db?journal_mode=WAL&busy_timeout=5000&synchronous=NORMAL
+    maximumPoolSize: 4
+    minimumIdle: 1
+    connectionTimeout: 30000
+    validationTimeout: 5000
 admin:
   gonggao: ""  #填写公告后 app 每次开启时都会弹出
   username: "admin"
-  password: "adminadmin"
+  passwordHash: "" #使用 AdminPasswordTool 生成 bcrypt 哈希，禁止填写明文密码
   update: false #是否开启定时更新最新章节的任务，共享后端请勿开启
   code: "" #需要填写app管理后台生成的密钥
 user:

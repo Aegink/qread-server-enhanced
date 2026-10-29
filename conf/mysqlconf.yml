@@ -5,10 +5,16 @@ solon.dataSources:
     jdbcUrl: jdbc:mysql://127.0.0.1:3306/数据库名?characterEncoding=UTF-8&allowMultiQueries=true&serverTimezone=UTC
     username: 用户
     password: 密码
+    maximumPoolSize: 20
+    minimumIdle: 5
+    connectionTimeout: 30000
+    validationTimeout: 5000
+    idleTimeout: 600000
+    maxLifetime: 1800000
 admin:
   gonggao: ""  #填写公告后 app 每次开启时都会弹出
   username: "admin"
-  password: "adminadmin"
+  passwordHash: "" #使用 AdminPasswordTool 生成 bcrypt 哈希，禁止填写明文密码
   update: false #是否开启定时更新最新章节的任务，共享后端请勿开启
   code: "" #需要填写app管理后台生成的密钥
 user:
