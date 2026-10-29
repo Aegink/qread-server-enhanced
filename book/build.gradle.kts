@@ -15,12 +15,12 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
 
     // 规则相关
-    implementation("org.jsoup:jsoup:1.16.2")
+    implementation("org.jsoup:jsoup:1.23.2")
     implementation("cn.wanghaomiao:JsoupXpath:2.5.3")
     implementation("com.jayway.jsonpath:json-path:2.9.0")
 
     // json
-    implementation("com.google.code.gson:gson:2.11.0")
+    implementation("com.google.code.gson:gson:2.15.0")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.13.+")
 
     //log
@@ -30,7 +30,7 @@ dependencies {
     // Retrofit
     implementation("com.squareup.retrofit2:retrofit:2.6.1")
     implementation("com.julienviet:retrofit-vertx:1.1.3")
-    implementation("org.bouncycastle:bcpkix-jdk18on:1.80")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.86")
 
     // 网络
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
@@ -41,7 +41,8 @@ dependencies {
 
     //js
    // implementation(files("src/lib/rhino-1.7.14.jar"))
-    implementation("org.mozilla:rhino:1.8.0")
+    // 1.8.1 修复了 toFixed() DoS（GHSA-3w8q-xq97-5j7x）；1.9.x 移除了 VMBridge，需先改 VMBridgeReflect 再升
+    implementation("org.mozilla:rhino:1.8.1")
     implementation(files("src/lib/xmlpull-1.1.3.1.jar"))
     implementation("org.apache.commons:commons-text:1.13.0")
     implementation("org.apache.commons:commons-compress:1.27.1")

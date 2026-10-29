@@ -27,14 +27,14 @@ class AnalyzeByJSoup(doc: Any) {
                 return doc
             }
             if (doc is JXNode) {
-                return if (doc.isElement) doc.asElement() else Jsoup.parse(doc.toString())
+                return if (doc.isElement) doc.asElement() else parseSourceHtml(doc.toString())
             }
             runCatching {
                 if (doc.toString().startsWith("<?xml", true)) {
                     return Jsoup.parse(doc.toString(), Parser.xmlParser())
                 }
             }
-            return Jsoup.parse(doc.toString())
+            return parseSourceHtml(doc.toString())
         }
 
     }
@@ -379,9 +379,13 @@ class AnalyzeByJSoup(doc: Any) {
              * */
             if (split == '!') { //排除
 
-                for (pcInt in indexSet) elements[pcInt] = null
+                // jsoup 1.23 起 Elements 不再允许塞 null，改为按索引重建（等价于上游 #1107 的做法）
+                val kept = Elements()
+                for ((index, element) in elements.withIndex()) {
+                    if (index !in indexSet) kept.add(element)
+                }
+                elements = kept
 
-                elements.removeAll(nullSet) //测试过，这样就行
 
             } else if (split == '.') { //选择
 

@@ -69,7 +69,7 @@ dependencies {
 
     //数据库
     implementation("com.mysql:mysql-connector-j:9.1.0")
-    implementation("org.xerial:sqlite-jdbc:3.49.1.0")
+    implementation("org.xerial:sqlite-jdbc:3.54.1.0")
     implementation("com.baomidou:mybatis-plus-solon-plugin:3.5.9")
     implementation("com.baomidou:mybatis-plus-jsqlparser-4.9:3.5.9")
     //implementation("org.dromara.mpe:mybatis-plus-ext-autotable-core:3.5.10.1-EXT822")
@@ -81,9 +81,9 @@ dependencies {
     implementation("com.zaxxer:HikariCP:6.2.1")
     runtimeOnly("p6spy:p6spy:3.9.1")
 
-    implementation("com.google.code.gson:gson:2.11.0")
+    implementation("com.google.code.gson:gson:2.15.0")
 
-    implementation("org.bouncycastle:bcpkix-jdk18on:1.80")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.86")
     testImplementation(kotlin("test"))
 
 
