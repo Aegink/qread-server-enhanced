@@ -58,7 +58,7 @@ class AnalyzeUrl(
     headerMapF: Map<String, String>? = null,
     val needanalyzeUrl :Boolean=true,
     override var debugLog: DebugLog?,
-    hasLoginHeader: Boolean = true,
+    private val hasLoginHeader: Boolean = true,
     private val callTimeout: Long? = null,
     private val infoMap: MutableMap<String, String>? = null
 ) :JsExtensions {
@@ -127,7 +127,8 @@ class AnalyzeUrl(
                 headerMap.putAll(headerMapF)
             }
             runCatching {
-                headerMap.putAll(source!!.getHeaderMap(hasLoginHeader))
+                // 基础头（含书源 header JSON / UA），登录头留到 URL 解析完按站点决定
+                headerMap.putAll(source!!.getHeaderMap(false))
             }
             if (headerMap.containsKey("proxy")) {
                 proxy = headerMap["proxy"]
@@ -199,6 +200,8 @@ class AnalyzeUrl(
         logger.debug("ruleUrl ${safeLogUrl(ruleUrl)}")
         logger.debug("baseUrl ${safeLogUrl(baseUrl)}")
         //debugLog?.log(source?. getKey(), ruleUrl)
+        // URL 解析完成后（可能被 js 改写或跳到别的域名）再按最终站点决定是否带登录头
+        applyLoginHeaderIfSameSite(url)
     }
 
     override fun toString(): String {
@@ -345,6 +348,37 @@ class AnalyzeUrl(
     private fun setRequestHeader(name: String, value: String) {
         headerMap.keys.filter { it.equals(name, true) }.forEach(headerMap::remove)
         headerMap[name] = value
+    }
+
+    /**
+     * 登录态请求头只发给书源本站（对齐 LegadoTeam/legado #1099）。
+     *
+     * 书源里 `header` 可能带登录 Cookie/Authorization，过去会对任意目标域名外发，
+     * 跨域请求（图床、CDN、第三方接口）会把凭据一起送出去。跨域确实需要认证头的书源，
+     * 应在 urlOption 的 `headers` 里显式声明，而不是依赖 source.header 外溢。
+     */
+    private fun applyLoginHeaderIfSameSite(target: String?) {
+        val src = source ?: return
+        if (!hasLoginHeader || !isLoginHeaderSite(target)) return
+        runCatching {
+            src.getLoginHeaderMap()?.let { headerMap.putAll(it) }
+        }
+    }
+
+    private fun isLoginHeaderSite(target: String?): Boolean {
+        val src = source ?: return true
+        val sourceDomain = subDomainOrNull(src.getKey()) ?: return true
+        val candidate = target?.takeIf { it.startsWith("http", true) }
+            ?: baseUrl.takeIf { it.isNotBlank() }
+            ?: return true
+        val targetDomain = subDomainOrNull(candidate) ?: return true
+        return targetDomain.equals(sourceDomain, ignoreCase = true)
+    }
+
+    private fun subDomainOrNull(value: String?): String? {
+        val text = value?.trim().orEmpty()
+        if (text.isEmpty() || !text.startsWith("http", true)) return null
+        return runCatching { NetworkUtils.getSubDomain(text) }.getOrNull()?.takeIf { it.isNotBlank() }
     }
     /**
      * 解析QueryMap
