@@ -52,7 +52,7 @@ class AnalyzeUrl(
     var baseUrl: String = "",
     private val source: BaseSource? = null,
     private val ruleData: RuleDataInterface? = null,
-    private val readTimeout: Long? = null,
+    private var readTimeout: Long? = null,
     private val chapter: BookChapter? = null,
     private var coroutineContext: CoroutineContext = EmptyCoroutineContext,
     headerMapF: Map<String, String>? = null,
@@ -62,6 +62,9 @@ class AnalyzeUrl(
     private val callTimeout: Long? = null,
     private val infoMap: MutableMap<String, String>? = null
 ) :JsExtensions {
+
+    /** URL 选项 `{"followRedirects":false}`：null 表示沿用 OkHttp 默认（跟随）。 */
+    private var followRedirects: Boolean? = null
 
     companion object {
         val paramPattern: Pattern = Pattern.compile("\\s*,\\s*(?=\\{)")
@@ -308,6 +311,8 @@ class AnalyzeUrl(
                     dnsIp = option.getDnsIp()
                     serverID = option.getServerID()
                     webViewDelayTime = max(0, option.getWebViewDelayTime() ?: 0)
+                    option.getTimeout()?.let { readTimeout = it }
+                    option.getFollowRedirects()?.let { followRedirects = it }
                     option.getOrigin()?.let { setRequestHeader("Origin", it) }
                     (option.getClick()?:option.getJs())?.let { jsStr ->
                         //println(jsStr)
@@ -675,7 +680,7 @@ class AnalyzeUrl(
 
     private fun getClient(): OkHttpClient {
         val client = getProxyClient(proxy)
-        if (readTimeout == null && callTimeout == null && dnsIp == null) {
+        if (readTimeout == null && callTimeout == null && dnsIp == null && followRedirects == null) {
             return client
         }
         return client.newBuilder().apply {
@@ -685,6 +690,9 @@ class AnalyzeUrl(
             }
             callTimeout?.let {
                 callTimeout(it, TimeUnit.MILLISECONDS)
+            }
+            followRedirects?.let {
+                followRedirects(it)
             }
             dnsIp?.parseDnsAddresses()?.let { addresses ->
                 val targetHost = extractHostFromUrl(urlNoQuery)
@@ -835,6 +843,8 @@ class AnalyzeUrl(
         private var usePhone: Any? = null,
         private var serverID: Long? = null,
         private var webViewDelayTime: Long? = null,
+        private var timeout: Long? = null,
+        private var followRedirects: Boolean? = null,
     ) {
         fun setMethod(value: String?) {
             method = if (value.isNullOrBlank()) null else value
@@ -874,6 +884,22 @@ class AnalyzeUrl(
 
         fun getRetry(): Int {
             return retry ?: 0
+        }
+
+        fun setTimeout(value: Long?) {
+            timeout = if (value == null || value <= 0) null else value
+        }
+
+        fun getTimeout(): Long? {
+            return timeout
+        }
+
+        fun setFollowRedirects(value: Boolean?) {
+            followRedirects = value
+        }
+
+        fun getFollowRedirects(): Boolean? {
+            return followRedirects
         }
 
         fun setType(value: String?) {
