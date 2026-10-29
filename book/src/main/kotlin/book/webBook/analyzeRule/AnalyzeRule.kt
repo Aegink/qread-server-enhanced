@@ -811,6 +811,8 @@ open class AnalyzeRule(
     }
 
     fun put(key: String, value: String): String {
+        // 规则级内存：保证 java.put -> java.get 在同一规则实例内一定读得回（上游 setLocal 语义）
+        localBindings[key] = value
         if(source != null){
             val userid = source.userid?:""
             chapter?.userid = userid
@@ -826,6 +828,7 @@ open class AnalyzeRule(
     }
 
     fun get(key: String): String {
+        localBindings[key]?.let { return it }
         when (key) {
             "bookName" -> book?.let {
                 return it.name
@@ -848,7 +851,28 @@ open class AnalyzeRule(
             ?: "")
     }
 
+    /**
+     * 保存规则级局部变量（对齐上游 setLocal）：同一次规则解析内跨步骤共享，JS 侧用 java.get(key) 读回。
+     */
+    fun setLocal(key: String, value: String): AnalyzeRule {
+        localBindings[key] = value
+        return this
+    }
+
+    /**
+     * 给当前规则命名（对齐上游 setRuleName）：没有书源上下文时 getTag 返回它。
+     */
+    fun setRuleName(name: String) {
+        if (name.isNotBlank()) ruleName = name
+    }
+
     var toastc=0
+
+    /** 规则级局部变量（`java.put/get` 的进程内兜底存储，对齐上游 setLocal） */
+    private val localBindings = HashMap<String, String>()
+
+    /** 规则名，供 getTag 在无书源上下文时返回（对齐上游 setRuleName） */
+    private var ruleName: String? = null
     /**
      * 弹窗提示
      */
@@ -974,7 +998,7 @@ open class AnalyzeRule(
         return source
     }
 
-    override fun getTag(): String? = source?.getTag() ?: ruleType
+    override fun getTag(): String? = source?.getTag() ?: ruleName ?: ruleType
 
     /**
      * js实现跨域访问,不能删
