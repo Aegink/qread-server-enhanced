@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper
 import org.apache.ibatis.solon.annotation.Db
 import org.noear.solon.annotation.*
 import org.noear.solon.core.util.DataThrowable
-import org.noear.solon.data.annotation.Tran
+import org.noear.solon.data.annotation.Transaction
 import web.mapper.CodeMapper
 import web.model.Code
 import web.response.*
@@ -52,7 +52,7 @@ open class CodeController {
         JsonResponse(true)
     }
 
-    @Tran
+    @Transaction
     @Post
     @Mapping("/delcode")
     fun delcode(code: String?) = run{

@@ -10,7 +10,7 @@ import org.noear.solon.annotation.Inject
 import org.noear.solon.annotation.Mapping
 import org.noear.solon.core.util.DataThrowable
 import org.noear.solon.data.annotation.Cache
-import org.noear.solon.data.annotation.Tran
+import org.noear.solon.data.annotation.Transaction
 import org.noear.solon.data.cache.CacheService
 import org.noear.solon.web.cors.annotation.CrossOrigin
 import web.mapper.ReplaceRuleMapper
@@ -72,7 +72,7 @@ open class ReplaceRuleController:BaseController() {
         JsonResponse(false)
     }
 
-    @Tran
+    @Transaction
     @Mapping("/addReplaceRule")
     open fun addReplaceRule(accessToken:String?, @Body rule: ReplaceRule)=run{
         val user = getuserbytocken(accessToken)

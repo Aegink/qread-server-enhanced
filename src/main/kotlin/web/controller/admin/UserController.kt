@@ -11,7 +11,7 @@ import org.noear.solon.annotation.Mapping
 import org.noear.solon.annotation.Param
 import org.noear.solon.annotation.Post
 import org.noear.solon.core.util.DataThrowable
-import org.noear.solon.data.annotation.Tran
+import org.noear.solon.data.annotation.Transaction
 import org.noear.solon.data.tran.TranPolicy
 import web.controller.api.ApiWebSocket
 import web.mapper.BackGroundMapper
@@ -150,7 +150,7 @@ open class UserController {
         JsonResponse(true)
     }
 
-    @Tran(policy = TranPolicy.requires_new)
+    @Transaction(policy = TranPolicy.requires_new)
     fun deluserbyid(id:String) = run{
         usersMapper.deleteById(id)
         booklistMapper.delUserbooks(id)

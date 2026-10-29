@@ -19,7 +19,7 @@ import org.noear.solon.core.handle.Context
 import org.noear.solon.core.util.DataThrowable
 import org.noear.solon.data.annotation.Cache
 import org.noear.solon.data.annotation.CacheRemove
-import org.noear.solon.data.annotation.Tran
+import org.noear.solon.data.annotation.Transaction
 import org.noear.solon.data.cache.CacheService
 import org.noear.solon.web.cors.annotation.CrossOrigin
 import web.mapper.RssSourceMapper
@@ -243,7 +243,7 @@ open class RssController :BaseController() {
         ))
     }
 
-    @Tran
+    @Transaction
     @Mapping("/editRssSources")
     open fun editRssSources(accessToken:String?, @Body content:EditMsg) = run{
         val user=getsourceuser(accessToken)
@@ -658,7 +658,7 @@ open class RssController :BaseController() {
         JsonResponse(true).Data(s)
     }
 
-    @Tran
+    @Transaction
     @Mapping("/saveRssSources")
     fun saveRssSources(accessToken:String?, source:String, urls:String)=run{
         val user=getsourceuser(accessToken)

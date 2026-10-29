@@ -19,8 +19,9 @@ fun main(args: Array<String>) {
     Solon.start(App::class.java, args) { app ->
         app.enableSessionState(true)
         app.enableWebSocket(true)
-        app.filter(CrossFilter().pathPatterns("/assets/covers/**").allowedOrigins("*"))
-        app.filter(CrossFilter().pathPatterns("/assets/codes/**").allowedOrigins("*"))
+        // Solon 4：SolonApp.filter(...) 已移除，改用 ChainManager.addFilter
+        app.chains().addFilter(CrossFilter().pathPatterns("/assets/covers/**").allowedOrigins("*"), 0)
+        app.chains().addFilter(CrossFilter().pathPatterns("/assets/codes/**").allowedOrigins("*"), 0)
         StaticMappings.add("/assets/",  FileStaticRepository("storage/assets/"))
        // app.http("/webdav/*", handler)
        // app.get("/") { ctx -> ctx.forward("/index.html"); }

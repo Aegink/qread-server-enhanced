@@ -38,7 +38,7 @@ dependencies {
 
     implementation("javax.mail:mail:1.4.7")
 
-    implementation(platform("org.noear:solon-parent:3.3.2-M1"))
+    implementation(platform("org.noear:solon-parent:4.1.1"))
 
     implementation("org.noear:solon-web"){
         exclude(group = "org.noear", module = "solon-serialization-snack3")
@@ -55,7 +55,7 @@ dependencies {
     implementation("org.noear:solon-scheduling-simple"){
         exclude(group = "org.slf4j", module = "slf4j-simple")
     }
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.1.0"){
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"){
         exclude(group = "org.slf4j", module = "slf4j-simple")
     }
     implementation("org.noear:solon-serialization-gson"){
@@ -64,14 +64,17 @@ dependencies {
     implementation("org.noear:solon-cache-redisson"){
         exclude(group = "org.slf4j", module = "slf4j-simple")
     }
+    // Solon 4 把数据/事务注解拆到 solon-data；snack3 注解（ONodeAttr）需显式引入
+    implementation("org.noear:solon-data")
+    implementation("org.noear:snack3:3.2.139")
 
 
 
     //数据库
     implementation("com.mysql:mysql-connector-j:9.1.0")
     implementation("org.xerial:sqlite-jdbc:3.54.1.0")
-    implementation("com.baomidou:mybatis-plus-solon-plugin:3.5.9")
-    implementation("com.baomidou:mybatis-plus-jsqlparser-4.9:3.5.9")
+    implementation("com.baomidou:mybatis-plus-solon-plugin:3.5.17")
+    implementation("com.baomidou:mybatis-plus-jsqlparser-4.9:3.5.17")
     //implementation("org.dromara.mpe:mybatis-plus-ext-autotable-core:3.5.10.1-EXT822")
     implementation("org.dromara.autotable:auto-table-core:2.1.4")
     //implementation("org.dromara.autotable:auto-table-solon-plugin:2.1.4")

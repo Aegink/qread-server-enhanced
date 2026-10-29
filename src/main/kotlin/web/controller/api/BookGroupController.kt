@@ -7,7 +7,7 @@ import org.noear.solon.annotation.Controller
 import org.noear.solon.annotation.Inject
 import org.noear.solon.annotation.Mapping
 import org.noear.solon.core.util.DataThrowable
-import org.noear.solon.data.annotation.Tran
+import org.noear.solon.data.annotation.Transaction
 import org.noear.solon.web.cors.annotation.CrossOrigin
 import web.mapper.BookGroupMapper
 import web.mapper.BooklistMapper
@@ -41,7 +41,7 @@ open class BookGroupController:BaseController() {
         JsonResponse(true).Data(bookGroupMapper.getGroupbyuserid(user.id!!))
     }
 
-    @Tran
+    @Transaction
     @Mapping("/addgroup")
     open fun addgroup( accessToken:String?,name:String?)=run{
         val user=getuserbytocken(accessToken)
@@ -71,7 +71,7 @@ open class BookGroupController:BaseController() {
         JsonResponse(true)
     }
 
-    @Tran
+    @Transaction
     @Mapping("/delgroup")
     open fun delgroup( accessToken:String?,name:String?)=run{
         val user=getuserbytocken(accessToken)
@@ -89,7 +89,7 @@ open class BookGroupController:BaseController() {
         JsonResponse(true)
     }
 
-    @Tran
+    @Transaction
     @Mapping("/editgroup")
     open fun editgroup( accessToken:String?,oldname:String?,newname:String?)=run{
         val user=getuserbytocken(accessToken)
@@ -111,7 +111,7 @@ open class BookGroupController:BaseController() {
         JsonResponse(true)
     }
 
-    @Tran
+    @Transaction
     @Mapping("/setgroup")
     open fun setgroup( accessToken:String?,name:String?, url: String?)=run{
         val user=getuserbytocken(accessToken)
@@ -139,7 +139,7 @@ open class BookGroupController:BaseController() {
     }
 
 
-    @Tran
+    @Transaction
     @Mapping("/setgroups")
     open fun setgroups( accessToken:String?,name:String?, @Body ids: List<String>?)=run{
         val user=getuserbytocken(accessToken)

@@ -105,5 +105,8 @@ class ApiWebSocketTest {
         override fun send(text: String): Future<Void> = CompletableFuture.completedFuture(null)
         override fun send(buffer: ByteBuffer): Future<Void> = CompletableFuture.completedFuture(null)
         override fun close() = Unit
+        override fun close(code: Int, reason: String) = Unit
+        override fun sendPing(): Future<Void> = CompletableFuture.completedFuture(null)
+        override fun sendPong(): Future<Void> = CompletableFuture.completedFuture(null)
     }
 }

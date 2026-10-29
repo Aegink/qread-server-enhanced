@@ -5,7 +5,7 @@ import org.noear.solon.annotation.*
 import org.noear.solon.core.handle.Context
 import org.noear.solon.core.handle.ModelAndView
 import org.noear.solon.core.util.DataThrowable
-import org.noear.solon.data.annotation.Tran
+import org.noear.solon.data.annotation.Transaction
 import org.noear.solon.data.cache.CacheService
 import org.noear.solon.web.cors.annotation.CrossOrigin
 import org.slf4j.LoggerFactory
@@ -86,7 +86,7 @@ open class HomeController {
         }
     }
 
-    @Tran
+    @Transaction
     @Post
     @Mapping("/regester")
     fun regester(username:String? , password:String? ,phone:String?,email:String?, code:String?) = run {
