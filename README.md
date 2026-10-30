@@ -69,6 +69,8 @@
 - **56 个测试套件 / 204 个用例**（上游为 0）
 - 覆盖：本地 HTTP fixture 的书源端到端（搜索→详情→目录→正文）、JSONPath 列表规则、Rhino 语义、
   本地书各格式、RSS、存储兼容、凭据与 CSRF、并发工具、真实书源 JSON 往返与规则模式
+- 真源抽测：100 份线上书源的通过率与失败归因存档在 `docs/smoke/`（`smoke-latest.csv/json`，
+  可跨轮 diff），口径与复跑方法见 [`docs/smoke/README.md`](docs/smoke/README.md)
 - 文档：`维护基线.md`（上游锚点与同步规则）、`docs/releases/`（发布说明）、
   `轻阅读后端1panel面板部署指南.md`（部署与迁移）
 
