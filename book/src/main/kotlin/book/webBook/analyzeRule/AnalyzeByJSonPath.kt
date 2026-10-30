@@ -120,8 +120,16 @@ class AnalyzeByJSonPath(json: Any) {
         }
     }
 
-    internal fun getObject(rule: String): Any {
-        return ctx.read(rule)
+    /**
+     * 取单个 JSON 节点。路径不存在时返回 null（PathNotFoundException 视为"没有匹配"），
+     * 与 getString / getList 的容错保持一致——书源规则里缺失字段是常态，不能让它把整次搜索打断。
+     */
+    internal fun getObject(rule: String): Any? {
+        return try {
+            ctx.read(rule)
+        } catch (e: Exception) {
+            null
+        }
     }
 
     internal fun getList(rule: String): ArrayList<Any>? {
