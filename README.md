@@ -66,7 +66,7 @@
 
 ### 4. 测试与文档
 
-- **53 个测试套件 / 191 个用例**（上游为 0）
+- **56 个测试套件 / 204 个用例**（上游为 0）
 - 覆盖：本地 HTTP fixture 的书源端到端（搜索→详情→目录→正文）、JSONPath 列表规则、Rhino 语义、
   本地书各格式、RSS、存储兼容、凭据与 CSRF、并发工具、真实书源 JSON 往返与规则模式
 - 文档：`维护基线.md`（上游锚点与同步规则）、`docs/releases/`（发布说明）、
@@ -109,7 +109,7 @@ java -jar read.jar --server.port=8080 --solon.config.add='F:/qreadbackend/conf/c
 ## 四、测试
 
 ```powershell
-.\gradlew.bat :test :book:test          # 53 套件 / 191 用例
+.\gradlew.bat :test :book:test          # 56 套件 / 204 用例
 $env:QREAD_LIVE_SMOKE="1"; .\gradlew.bat :book:test --tests "book.webBook.RealSourceLiveSmokeTest"
 ```
 
