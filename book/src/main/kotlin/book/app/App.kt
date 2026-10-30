@@ -2,11 +2,13 @@ package book.app
 
 import book.util.http.JsonpResponse
 import book.util.http.StrResponse
+import book.util.SynchronizedLruCache
 import book.webBook.analyzeRule.InfoMap
 import java.util.WeakHashMap
 
 object App  {
-    val exploreInfoMapList = WeakHashMap<String, InfoMap>()
+    /** 发现页的临时状态：线程安全 + 有上限，避免 WeakHashMap 被 GC 随机清空、也避免无限增长。 */
+    val exploreInfoMapList = SynchronizedLruCache<String, InfoMap>(1024)
 
 
     var startBrowserAwait =fun  (urlStr: String,title: String,tocken:String,header:String,name: String): StrResponse {

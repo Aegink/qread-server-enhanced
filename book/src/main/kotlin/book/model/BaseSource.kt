@@ -275,9 +275,7 @@ interface BaseSource : JsExtensions {
     }
 
     fun  setinfoMap(key: String, value: String?) {
-        val infoMap=App.exploreInfoMapList[getKey()+userid] ?:  InfoMap(getKey(),userid?:"").also {
-            App. exploreInfoMapList.put(getKey()+userid, it)
-        }
+        val infoMap = App.exploreInfoMapList.getOrPut(getKey() + userid) { InfoMap(getKey(), userid?:"") }
         if( value == null){
             infoMap.remove(key)
         }else{
@@ -293,9 +291,9 @@ interface BaseSource : JsExtensions {
 
     @Throws(Exception::class)
     fun findevalJS(jsStr: String, bindingsConfig: ScriptBindings.() -> Unit = {}): Any? {
-        val infoMap=App.exploreInfoMapList[getKey()+userid] ?:  InfoMap(getKey(),userid?:"").also {
-            App. exploreInfoMapList.put(getKey()+userid, it)
-        }
+        // 线程安全的 LRU：原来的 WeakHashMap 用临时拼出的 String 当 key，GC 随时会把条目回收，
+        // 发现页状态会莫名丢失；多线程并发读写也没有同步。
+        val infoMap = App.exploreInfoMapList.getOrPut(getKey() + userid) { InfoMap(getKey(), userid?:"") }
         val bindings = buildScriptBindings { bindings ->
             bindings.apply(bindingsConfig)
             bindings["java"] = SourceLoginJsExtensions(source = getSource())

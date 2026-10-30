@@ -12,13 +12,15 @@ import org.slf4j.LoggerFactory
 import java.io.File
 import java.net.IDN
 import java.net.URI
+import java.util.concurrent.ConcurrentHashMap
 import java.util.WeakHashMap
 
 
 // TODO 处理cookie
 class CookieStore(val userid:String) : CookieManager {
     companion object{
-        val Stores:HashMap<String,CookieStore> = HashMap()
+        /** 线程安全：多个请求线程会同时按 key 取同一条 Cookie 存储。 */
+        val Stores: ConcurrentHashMap<String, CookieStore> = ConcurrentHashMap()
     }
     private val logger: Logger = LoggerFactory.getLogger(CookieStore::class.java)
 
