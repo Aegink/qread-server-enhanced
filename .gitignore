@@ -12,6 +12,8 @@ local
 cookie/
 storage/
 read.db
+read.db-shm
+read.db-wal
 solon-read.iml
 
 ### IntelliJ IDEA ###
