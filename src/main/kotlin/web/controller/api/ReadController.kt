@@ -675,7 +675,9 @@ open class ReadController : BaseController() {
      */
     private fun proxyGetToClient(ctx: Context, url: String, header: String?, tag: String) {
         SslUtils.ignoreSsl()
-        var current = URI(url)
+        // 复用图片代理那套 SSRF 防护：只允许 http/https、拒绝 userInfo，解析后拒绝
+        // 回环/私有网段/link-local/ULA —— 否则任何持 token 的用户都能让服务器去拉内网地址。
+        var current = validateProxyUri(url)
         var hops = 0
         while (true) {
             val connection = current.toURL().openConnection() as HttpURLConnection
@@ -700,7 +702,8 @@ open class ReadController : BaseController() {
                     ctx.outputAsJson(GSON.toJson(JsonResponse(false, "上游重定向异常($code)")))
                     return
                 }
-                current = current.resolve(location)
+                // 跳转目标同样要过 SSRF 校验，否则可以 302 到内网
+                current = validateProxyUri(current.resolve(location).toString())
                 continue
             }
             if (code != HttpURLConnection.HTTP_OK) {
