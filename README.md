@@ -63,6 +63,10 @@
 | sqlite-jdbc | 3.49.1.0 | 3.54.1.0 |
 | mysql-connector-j | 9.1.0 | 26.10.0 |
 | mybatis-plus | 3.5.9 | 3.5.17 |
+| Gradle | 8.10 | **8.14.6**（Kotlin 2.5 要求 ≥8.14.4；双栈网络需 `systemProp.java.net.preferIPv4Stack=true`） |
+| layui（后台 UI） | 2.9.18 | **2.13.9** |
+| jQuery UI | 1.8.22（2012 年） | **已移除**（登录/注册页零调用，升级到 1.14 反而需要补 `window.jQuery` 垫片） |
+| 运行镜像 | `1panel/java:22`（JDK 22.0.2，非 LTS） | **`eclipse-temurin:21-jre`**（JDK 21.0.13 LTS） |
 
 ### 4. 测试与文档
 
@@ -79,15 +83,46 @@
 1. **管理员密码不再接受明文**：`conf/conf.yml` 的 `admin.password` 改为 `admin.passwordHash`，
    必须先用 `java -cp "read.jar:libs/*" web.util.admin.AdminPasswordTool` 生成 bcrypt 哈希；
    两者都为空时**任何密码都无法登录后台**（旧配置含 `admin.password` 仍可登录并告警迁移）。
+   ⚠️ 该工具**强制要求密码 ≥12 位**，迁移时等于必须换一个更长的密码。
 2. **`libs/` 采用清空重拷**：依赖升级后旧 jar 会残留（曾出现两个 mysql 驱动），发布时必须整目录替换。
-3. **需要 JDK 21** 构建与运行（上游文档提到 Java 22，本分支以 21 为基线验证）。
+3. **需要 JDK 21** 构建与运行（上游文档提到 Java 22，本分支以 21 为基线验证；生产容器已换成
+   `eclipse-temurin:21-jre`）。
 4. **Solon 4**：组件集合与 3.x 不同，`conf/` 无需改动，但 `libs/` 必须与 `read.jar` 同批替换。
+5. **启动必须指定配置文件**：打包内 `app.yml` 写的是 `solon.config.add: "./conf.yml"`（相对工作目录），
+   仓库/生产布局把配置放在 `conf/conf.yml` 或独立文件，必须显式
+   `--solon.config.add=/opt/qread/conf.yml`，否则会因 `admin.username` 缺失直接启动失败。
+6. **Gradle 8.14 起依赖下载走 JDK HttpClient**：双栈网络下若 IPv6 不通，会报
+   `Remote host terminated the handshake`；`gradle.properties` 已加
+   `systemProp.java.net.preferIPv4Stack=true` 兜底。
 
 ### 6. 明确保留的 qread 独有能力
 
 `usePhone` 手机代理（`getusePhone` / `headusePhone` / `postusePhone` / `getVerificationCodeusePhone`）、
 服务端 WebView 桥（`java.click`、`java.showBrowser`）、`startBrowserDp` 段评接口、`java.qread()`、
 按用户隔离的 Cookie/Cache、CBZ/MOBI/AZW/AZW3/PDF、本地书八格式、`java.getWebViewUANEW`。
+
+### 7. 维护边界（本分支做什么、不做什么）
+
+**做**：
+
+- 解析引擎（从 `LegadoTeam/legado` 移植、按上游提交逐项对齐）
+- 服务端接口、鉴权与安全加固（CSRF、凭据、限流、按用户隔离）
+- 依赖与运行时升级（Solon / rhino / okhttp / JDBC 驱动等）
+- 配置兼容与部署脚本（`conf/`、启动参数、升级流程）
+- 后台管理模板（`templates/`）与后台静态资源（`static/static/`）
+
+**不做**：
+
+- **不改 Flutter 前端产物**（`src/main/resources/static/` 的 `main.dart.js`、`assets/`、
+  `flutter-canvaskit/` 等）。这些是「轻悦时光」App 的 Web 构建产物，源码不公开，
+  上游从 3.4.5 起也没有重建过；手改编译产物只会与 App 版本错配。
+- 不改 `appversion`（改动会触发 App 的更新提示）。
+- 不追上游停更之后的新功能。
+- 不为「站点断流 / 风控 / 书源规则写错」在引擎里打补丁 —— 这类失败归书源或站点维护者，
+  判断口径见 [`docs/smoke/README.md`](docs/smoke/README.md)。
+
+**判定「这一轮做完了」的标准**：回归测试全绿 + 100 源抽测通过数不低于上一轮 +
+启动冒烟 5 项通过 + 发布三件套（`read.jar` / `libs/` / `conf/`）同批。
 
 ---
 
