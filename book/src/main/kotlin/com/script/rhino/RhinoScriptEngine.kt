@@ -72,6 +72,7 @@ import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 @Suppress("MemberVisibilityCanBePrivate")
 object RhinoScriptEngine : AbstractScriptEngine(), Invocable, Compilable {
     var accessContext: AccessControlContext? = null
+    private const val CRYPTO_JS_RESOURCE = "/js/crypto-js.min.js"
     private var topLevel: RhinoTopLevel? = null
     private val indexedProps: MutableMap<Any, Any?>
     private val implementor: InterfaceImplementor
@@ -270,7 +271,14 @@ object RhinoScriptEngine : AbstractScriptEngine(), Invocable, Compilable {
         val newScope: Scriptable = ExternalScriptable(context, indexedProps)
         val cx = Context.enter()
         try {
-            newScope.prototype = RhinoTopLevel(cx, this)
+            val top = sharedTopLevel(cx)
+            newScope.prototype = top
+            // 直接挂到实际求值作用域上：Rhino 的标识符查找既不查 prototype，ExternalScriptable
+            // 也没有 parentScope 链，只有作用域自有属性才一定能解析到。
+            val cryptoJs = top.get("CryptoJS", top)
+            if (cryptoJs != Scriptable.NOT_FOUND) {
+                newScope.put("CryptoJS", newScope, cryptoJs)
+            }
         } finally {
             Context.exit()
         }
@@ -278,13 +286,34 @@ object RhinoScriptEngine : AbstractScriptEngine(), Invocable, Compilable {
         return newScope
     }
 
-    override fun getRuntimeScope(bindings: ScriptBindings): Scriptable {
-        val cx = Context.enter()
-        try {
-            bindings.prototype = cx.initStandardObjects()
-        } finally {
-            Context.exit()
+    /**
+     * 缓存的 Rhino 顶层作用域，首次创建时注入内置 CryptoJS（对齐 legado 的 installCryptoJs）。
+     *
+     * 书源规则里大量直接使用 `CryptoJS.MD5(...)` / `CryptoJS.AES.decrypt(...)`；缺失时规则会抛
+     * `ReferenceError: CryptoJS 未定义`（真源实测遇到过）。这里顺带把 RhinoTopLevel 缓存下来，
+     * 避免每次求值都重建标准对象。
+     */
+    private fun sharedTopLevel(cx: Context): RhinoTopLevel {
+        topLevel?.let { return it }
+        val created = RhinoTopLevel(cx, this)
+        runCatching {
+            RhinoScriptEngine::class.java.getResource(CRYPTO_JS_RESOURCE)?.readText()?.let { source ->
+                cx.evaluateString(created, source, "crypto-js.min.js", 1, null)
+            }
+        }.onFailure {
+            System.err.println("installCryptoJs 失败: ${it.javaClass.simpleName}: ${it.message}")
         }
+        topLevel = created
+        return created
+    }
+
+    override fun getRuntimeScope(bindings: ScriptBindings): Scriptable {
+        // 复用带内置库（CryptoJS）的共享顶层作用域：既让规则能用 CryptoJS，也省掉每次
+        // initStandardObjects 的开销。Rhino 的标识符查找走 parentScope 链，prototype 不够，
+        // 所以两者都指过去。
+        val shared = ScriptBindings.sharedTopLevelScope()
+        bindings.prototype = shared
+        bindings.setParentScope(shared)
         return bindings
     }
 
@@ -414,7 +443,7 @@ object RhinoScriptEngine : AbstractScriptEngine(), Invocable, Compilable {
         }
         val cx = Context.enter()
         try {
-            topLevel = RhinoTopLevel(cx, this)
+            topLevel = sharedTopLevel(cx)
         } finally {
             Context.exit()
         }
