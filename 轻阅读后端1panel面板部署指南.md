@@ -130,6 +130,35 @@ location / {
 
 不要把客户端原始 `X-Forwarded-For` 直接透传给后端。保存后重载 nginx，并确认安全组和防火墙只允许 nginx 访问 Java 后端端口。
 
+### 如果反向代理前面还有 WAF（重要）
+
+书源/RSS 规则里**合法包含** `eval(` / `include(` / `require(` / `define(` 这类 JS 关键字
+（`@js:` 规则、`<js>` 目录规则必然用到）。通用 WAF 的「参数注入」规则会把它们当成攻击载荷，
+直接返回 403 拦截页 —— App 侧只显示「网络错误」，后端日志里查不到任何异常。
+
+给这些**已鉴权**的接口放行 WAF 内容检测：
+
+```bash
+# 1. 按需调整放行路径（默认 /api/5/ 与 /admin，每行一个前缀）
+vi conf/waf-skip-paths.txt
+
+# 2. 生成反代配置并重载（先 nginx -t 校验，失败自动删除）
+conf/scripts/apply-waf-skip.sh \
+  --site  你的域名 \
+  --backend http://127.0.0.1:8080 \
+  --openresty 1Panel-openresty-xxxx     # 裸机 nginx 安装则省略此参数
+
+# 3. 需要恢复 WAF 检测时
+conf/scripts/apply-waf-skip.sh --site 你的域名 --revert
+```
+
+脚本会写入 `<站点目录>/proxy/zz-waf-skip-<域名>.conf`，只对清单里的路径关闭 WAF 内容检测，
+站点其它路径不受影响。用的是云厂商 WAF（阿里云 / 腾讯云 / Cloudflare）时，把
+`conf/waf-skip-paths.txt` 里的路径加到它的白名单即可。
+
+> 判断是不是这个问题：看反向代理的 access log 有没有 `403`，以及 WAF 日志里是否命中
+> 「参数注入 / args」类规则。只看应用日志会以为一切正常。
+
 ---
 
 ## 步骤七：验证部署
@@ -262,6 +291,11 @@ grep -RniE 'ERROR|Exception|failed|bearer|authorization' /www/wwwroot/read/logs
 - **出现 `ClassNotFoundException` / `NoClassDefFoundError`**：确认 `libs/` 与 `read.jar` 来自同一版本，且没有漏传或混入旧依赖 JAR
 - **Java 环境启动报错**：执行 `java -version` 确认为 21/22，并查看 `logs/` 中的首个异常，而不是只反复重启
 - **升级后异常**：停止服务后同时替换 `read.jar` 和 `libs/`，不要热覆盖正在使用的 JAR；升级前备份 `conf.yml`、数据库、`storage/` 和 `local/`
+- **App 里保存书源/订阅失败，提示「网络错误」，后端日志却没有任何异常**：几乎一定是**反向代理或
+  WAF 拦掉了请求**。书源/RSS 规则里合法包含 `eval(` / `include(` / `require(` 等 JS 关键字，
+  通用 WAF 会把它判成攻击载荷并返回 403 拦截页，App 只能显示「网络错误」。按「步骤六」里的
+  《如果反向代理前面还有 WAF》一节放行对应路径即可；排查时先看反代的 access log 有没有 403，
+  而不是只看应用日志。
 
 ---
 

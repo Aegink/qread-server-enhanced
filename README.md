@@ -143,6 +143,11 @@ java -jar read.jar --server.port=8080 --solon.config.add='F:/qreadbackend/conf/c
 后台 `/admin`，Web 阅读根路径 `/`。完整 1Panel 部署步骤见
 [`轻阅读后端1panel面板部署指南.md`](轻阅读后端1panel面板部署指南.md)。
 
+> **反向代理/WAF 必须放行**：书源与 RSS 规则里合法含 `eval(` / `include(` / `require(` 等 JS
+> 关键字，通用 WAF 会判成攻击并返回 403，表现为「App 保存书源/订阅报网络错误、后端日志却没事」。
+> 用 [`conf/waf-skip-paths.txt`](conf/waf-skip-paths.txt) 维护放行清单，再执行
+> `conf/scripts/apply-waf-skip.sh --site <域名>`（`--revert` 可恢复）。细节见部署指南步骤六。
+
 ## 四、测试
 
 ```powershell
