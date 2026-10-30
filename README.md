@@ -36,6 +36,10 @@
 - 日志与隐私：删除 Cookie 明文刷屏，URL / Header / 验证码 / 令牌统一脱敏
 - 多租户：Cookie / Cache / WebSocket / WebView / 本地书解析按 `userid` 隔离
 - 登录态请求头只发同站（跨域请求不再带出 Cookie/Authorization）
+- 2026-10-30 补洞（上一轮遗漏）：`/api/5/listen`、`/api/5/getjson` 之前没走 SSRF 校验（已补，含跳转目标）；
+  Cookie 落库加密由硬编码 key 改为 `v2:` 随机 IV + 环境变量 `QREAD_COOKIE_KEY`（存量数据兼容）；
+  后台列表 `order` 参数加白名单（防 ORDER BY 注入）；`/api/` 的未预期异常统一回可读 JSON，
+  不再只给空 500
 
 ### 2. 解析引擎（从 legado 系移植，逐函数对照，不整包覆盖）
 

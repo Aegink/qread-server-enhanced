@@ -138,6 +138,23 @@ java -Djava.net.preferIPv4Stack=true -jar /www/wwwroot/read/read.jar \
 
 1Panel 运行环境改启动命令后需要**重建容器/重启环境**才会生效（`docker compose up -d --force-recreate`）。
 
+### 配置 Cookie 加密密钥（建议）
+
+用户 Cookie 是加密后落库的。历史版本用的是写死在源码里的默认密钥（本项目开源，等于谁都能解开），
+现在支持由部署方指定：
+
+```bash
+# 任选一种，key 需为 16/24/32 字节
+java -Dqread.cookieKey=你的32位随机字符串 -jar read.jar ...
+# 或
+QREAD_COOKIE_KEY=你的32位随机字符串 java -jar read.jar ...
+```
+
+生成示例：`head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 32`
+
+不配置也能启动（继续用默认密钥并打一条告警）。**存量数据不受影响**：新数据用 `v2:` 随机 IV 写入，
+老数据仍按历史密钥解密。1Panel 运行环境改完启动命令后同样需要重建容器生效。
+
 ---
 
 ## 步骤六：配置反向代理
