@@ -2,6 +2,7 @@ package web.controller.api
 
 
 import book.model.Book
+import web.util.security.maskToken
 import book.model.BookChapter
 import book.model.BookSource
 import book.model.SearchBook
@@ -124,7 +125,7 @@ class SourceCheckDebug: BaseDebug() {
             }
         }
         jobs.joinAll()
-        logger.info("书源检验结束:$accessToken")
+        logger.info("书源检验结束:${maskToken(accessToken)}")
         getsocket(checkid).send(Gson().toJson(ErrorMsg().apply {
             url=""
             msg="close"

@@ -2,6 +2,7 @@ package web.controller.api
 
 
 import org.noear.solon.annotation.Inject
+import web.util.security.maskToken
 import org.noear.solon.net.websocket.WebSocket
 import org.noear.solon.net.websocket.listener.SimpleWebSocketListener
 import org.slf4j.Logger
@@ -22,7 +23,7 @@ open class BaseDebug: SimpleWebSocketListener()  {
 
     override fun onOpen(socket: WebSocket) {
         val accessToken: String = socket.param("id")
-        logger.info("websocket Open $accessToken")
+        logger.info("websocket Open ${maskToken(accessToken)}")
         if (accessToken.isBlank()) {
             socket.close()
             return

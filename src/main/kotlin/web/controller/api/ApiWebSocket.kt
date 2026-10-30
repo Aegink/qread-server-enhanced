@@ -1,6 +1,7 @@
 package web.controller.api
 
 import book.app.ToastMessage
+import web.util.security.maskToken
 import com.google.gson.Gson
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
@@ -121,7 +122,7 @@ class ApiWebSocket : SimpleWebSocketListener() {
 
     override fun onOpen(socket: WebSocket) {
         val accessToken: String = socket.param("id")
-        logger.info("websocket Open $accessToken")
+        logger.info("websocket Open ${maskToken(accessToken)}")
         if (accessToken.isBlank()) {
             socket.close()
             return
