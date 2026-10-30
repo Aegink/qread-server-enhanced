@@ -79,6 +79,10 @@ open class ReadController : BaseController() {
 
     companion object {
         private val logger: Logger = LoggerFactory.getLogger(BaseController::class.java)
+        /** 代拉请求的默认 UA：调用方没指定时用它，很多站点对默认的 Java UA 直接 403。 */
+        private const val DEFAULT_BROWSER_UA =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 
         fun getChapterListbycache(url: String,userid:String): Pair<List<BookChapter>?, Boolean> {
             val re: List<BookChapter>? = BigDataHelp.getChapterList(url,userid)
@@ -648,64 +652,79 @@ open class ReadController : BaseController() {
     open fun listen(ctx: Context, accessToken: String?,url: String?, header: String?) = runBlocking {
         getuserbytocken(accessToken)
         if (url.isNullOrBlank()) throw DataThrowable().data(JsonResponse(false, NOT_BANK))
-        val geturl = URI(url).toURL()
-        SslUtils.ignoreSsl()
-        val connection = geturl.openConnection() as HttpURLConnection
-        connection.requestMethod = "GET"
-        runCatching {
-            val json= Gson().fromJson<Map<String, String>>(header, Map::class.java)
-            json.forEach{(k,v)->
-                connection.setRequestProperty(k,v)
-            }
-        }
-        connection.connectTimeout = 20*1000
-        connection.readTimeout = 20*1000
-        val responseCode = connection.responseCode
-        //  读取响应
-        if (responseCode == HttpURLConnection.HTTP_OK) {
-            connection.inputStream.use { i->
-                val b = ByteArray(4096)
-                var len: Int
-                while ((i.read(b).also { it -> len = it }) != -1) {
-                    ctx.outputStream().write(b, 0, len)
-                }
-                ctx.flush();
-                ctx.close();
-            }
-        }else {
-            logger.info("GET请求失败")
-            JsonResponse(isSuccess = false,errorMsg ="GET请求失败")
-        }
+        proxyGetToClient(ctx, url, header, "listen")
+        null
     }
 
     @Mapping("/getjson")
     open fun getjson(ctx: Context, accessToken: String?,url: String?) = runBlocking {
         getuserbytocken(accessToken)
         if (url.isNullOrBlank()) throw DataThrowable().data(JsonResponse(false, NOT_BANK))
-        val geturl = URI(url).toURL()
-        SslUtils.ignoreSsl()
-        val connection = geturl.openConnection() as HttpURLConnection
-        connection.requestMethod = "GET"
-        connection.connectTimeout = 20*1000
-        connection.readTimeout = 20*1000
-        val responseCode = connection.responseCode
-        //  读取响应
-        if (responseCode == HttpURLConnection.HTTP_OK) {
-            connection.inputStream.use { i->
-                val b = ByteArray(4096)
-                var len: Int
-                while ((i.read(b).also { it -> len = it }) != -1) {
-                    ctx.outputStream().write(b, 0, len)
-                }
-                ctx.flush();
-                ctx.close();
-            }
-        }else {
-            logger.info("GET请求失败")
-            JsonResponse(isSuccess = false,errorMsg ="GET请求失败")
-        }
+        proxyGetToClient(ctx, url, null, "getjson")
+        null
     }
 
+    /**
+     * 服务端代拉一个 URL 并原样回写给客户端（书源/订阅的网络导入、封面代理都走这里）。
+     *
+     * 之前只有 200 才回写，其余情况只打一句「GET请求失败」：用户侧看到「没解析到」，
+     * 运维侧查不出是哪个地址、什么状态码。这里补齐三件事：
+     * 1. 调用方没给 User-Agent 时补浏览器 UA —— 不少站点对默认的 Java UA 直接 403；
+     * 2. 手动跟随 3xx（含跨协议），最多 5 跳；
+     * 3. 非 200 时记录 url / 状态码 / 响应片段，并把上游状态码带回给客户端。
+     */
+    private fun proxyGetToClient(ctx: Context, url: String, header: String?, tag: String) {
+        SslUtils.ignoreSsl()
+        var current = URI(url)
+        var hops = 0
+        while (true) {
+            val connection = current.toURL().openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            runCatching {
+                Gson().fromJson<Map<String, String>>(header, Map::class.java)?.forEach { (k, v) ->
+                    connection.setRequestProperty(k, v)
+                }
+            }
+            if (connection.getRequestProperty("User-Agent").isNullOrBlank()) {
+                connection.setRequestProperty("User-Agent", DEFAULT_BROWSER_UA)
+            }
+            connection.instanceFollowRedirects = false
+            connection.connectTimeout = 20 * 1000
+            connection.readTimeout = 20 * 1000
+            val code = connection.responseCode
+            if (code in 300..399) {
+                val location = connection.getHeaderField("Location")
+                connection.disconnect()
+                if (location.isNullOrBlank() || hops++ >= 5) {
+                    logger.warn("$tag 重定向异常 code={} url={} location={}", code, current, location)
+                    ctx.outputAsJson(GSON.toJson(JsonResponse(false, "上游重定向异常($code)")))
+                    return
+                }
+                current = current.resolve(location)
+                continue
+            }
+            if (code != HttpURLConnection.HTTP_OK) {
+                val snippet = runCatching {
+                    connection.errorStream?.use { it.readBytes().toString(Charsets.UTF_8) }
+                }.getOrNull().orEmpty().take(200).replace("\n", " ")
+                connection.disconnect()
+                logger.warn("$tag 上游返回 {} url={} body={}", code, current, snippet)
+                ctx.outputAsJson(GSON.toJson(JsonResponse(false, "上游返回 $code")))
+                return
+            }
+            connection.inputStream.use { input ->
+                val buffer = ByteArray(4096)
+                var len: Int
+                while (input.read(buffer).also { len = it } != -1) {
+                    ctx.outputStream().write(buffer, 0, len)
+                }
+                ctx.flush()
+            }
+            connection.disconnect()
+            ctx.close()
+            return
+        }
+    }
 
     @Mapping("/imageDecode")
     open fun imageDecode(ctx: Context, accessToken: String?, bookSourceUrl: String?, @Param("book")  ibook: String?, url: String?, header: String?) = runBlocking {
@@ -725,6 +744,9 @@ open class ReadController : BaseController() {
             json.forEach{(k,v)->
                 connection.setRequestProperty(k,v)
             }
+        }
+        if (connection.getRequestProperty("User-Agent").isNullOrBlank()) {
+            connection.setRequestProperty("User-Agent", DEFAULT_BROWSER_UA)
         }
         connection.connectTimeout = 20*1000
         connection.readTimeout = 20*1000
@@ -778,8 +800,8 @@ open class ReadController : BaseController() {
             }
 
         } else {
-            logger.info("GET请求失败")
-            JsonResponse(isSuccess = false,errorMsg ="GET请求失败")
+            logger.info("imageDecode 上游返回 {} url={}", responseCode, url)
+            JsonResponse(isSuccess = false, errorMsg = "上游返回 $responseCode")
         }
 
     }
