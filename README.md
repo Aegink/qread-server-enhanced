@@ -94,6 +94,9 @@
 6. **Gradle 8.14 起依赖下载走 JDK HttpClient**：双栈网络下若 IPv6 不通，会报
    `Remote host terminated the handshake`；`gradle.properties` 已加
    `systemProp.java.net.preferIPv4Stack=true` 兜底。
+7. **服务器没有全局 IPv6 时**：JVM 默认优先 IPv6，容器又只有 `lo` 的 IPv6，所有出网请求
+   （代拉书源、引擎抓站）会**立即失败**而不是回退 IPv4。启动参数加
+   `-Djava.net.preferIPv4Stack=true`；自查方法见部署指南「步骤五」。
 
 ### 6. 明确保留的 qread 独有能力
 

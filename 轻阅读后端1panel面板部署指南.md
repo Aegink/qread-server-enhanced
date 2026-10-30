@@ -113,6 +113,31 @@ user:
 
 启动后先查看日志，直到出现 `App: End loading elapsed=...ms` 和 `Started`。若使用 systemd 或 1Panel 守护进程，请配置失败自动重启，并设置合理的 JVM 内存上限，例如小内存服务器可在 `java` 后增加 `-Xms256m -Xmx768m`。
 
+### 如果服务器没有全局 IPv6（重要）
+
+很多站点（含 Cloudflare 后面的）会同时返回 A 与 AAAA 记录。JVM 默认**优先走 IPv6**；如果宿主机或
+容器没有可用的全局 IPv6，连接会**立刻失败**而不是回退到 IPv4，表现为：
+
+- App「从网络拉取书源/订阅」失败，提示「没解析到」
+- 书源搜索/正文间歇性失败
+- 后端日志里只有一句 `GET请求失败` 或直接没日志
+
+先在服务器上确认：
+
+```bash
+curl -4 -o /dev/null -w '%{http_code}\n' https://www.baidu.com   # 200 说明 IPv4 正常
+curl -6 -o /dev/null -w '%{http_code}\n' https://www.baidu.com   # 000 说明 IPv6 不通
+```
+
+IPv6 不通时，在启动命令里强制 IPv4（这一条同时修复代拉、引擎抓书源等所有出网请求）：
+
+```bash
+java -Djava.net.preferIPv4Stack=true -jar /www/wwwroot/read/read.jar \
+     --solon.config.add=/www/wwwroot/read/conf.yml --server.port=8080
+```
+
+1Panel 运行环境改启动命令后需要**重建容器/重启环境**才会生效（`docker compose up -d --force-recreate`）。
+
 ---
 
 ## 步骤六：配置反向代理
@@ -237,7 +262,6 @@ mv libs "$backup_dir/libs.pre-update"
 install -m 644 /www/wwwroot/read-release/read.jar ./read.jar
 cp -a /www/wwwroot/read-release/libs ./libs
 ```
-
 这一步会把旧程序文件直接移入备份目录，不会重复占用一份空间。`backup_dir` 变量必须与上一步在同一个终端会话中执行；若终端已关闭，请把它改成刚才输出的实际备份目录。替换后按 1Panel Java 运行用户修正所有者，例如：
 
 ```bash
@@ -296,6 +320,9 @@ grep -RniE 'ERROR|Exception|failed|bearer|authorization' /www/wwwroot/read/logs
   通用 WAF 会把它判成攻击载荷并返回 403 拦截页，App 只能显示「网络错误」。按「步骤六」里的
   《如果反向代理前面还有 WAF》一节放行对应路径即可；排查时先看反代的 access log 有没有 403，
   而不是只看应用日志。
+- **App 从网络拉取书源/订阅失败，提示「没解析到」**：先看后端日志有没有 `上游返回 <code>`。
+  若上游状态码正常，问题多半在服务器出网——用 `curl -4` / `curl -6` 对比同一地址，IPv6 不通时
+  在启动命令加 `-Djava.net.preferIPv4Stack=true`（见「步骤五」）。
 
 ---
 
