@@ -44,6 +44,7 @@
 - `SourceHtmlParser`：`<a/>` 这类老书源自闭合写法按 XHTML 语义解析
 - URL 选项补齐 `timeout` / `followRedirects`，与 `HEAD` / `bodyJs` / `dnsIp` / `webJs` 等并存
 - `QueryTTF`：glyphId、复合字形、cmap 0/4/6/12
+- 内置 **CryptoJS 4.2.0**：规则里可直接用 `CryptoJS.MD5(...)` / `CryptoJS.AES.decrypt(...)`（真源实测暴露的缺口）
 - 本地书：TXT / EPUB / UMD / CBZ / MOBI / AZW / AZW3 / PDF 全格式与解析缓存
 - RSS、段评、目录反序、`formatJs` 标题格式化、`preUpdateJs` 预更新脚本
 

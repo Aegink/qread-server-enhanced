@@ -80,6 +80,12 @@ OkHttp（Apache-2.0）、Rhino（MPL-2.0）、Gson（Apache-2.0）、json-path�
 sqlite-jdbc（Apache-2.0）、mysql-connector-j（GPL-2.0 + Universal FOSS Exception）、
 Bouncy Castle（MIT 风格）、Hutool（Apache-2.0）、FreeMarker（Apache-2.0）等。
 
+随仓库分发、未经修改的 JS 库：
+
+- **crypto-js 4.2.0**（MIT，© Jeff Mott / Evan Vosberg）——
+  `book/src/main/resources/js/crypto-js.min.js`，用于给书源规则提供全局 `CryptoJS`
+  （MD5/SHA/HMAC/AES/Base64），与「阅读」系内置 CryptoJS 的行为对齐。
+
 ---
 
 ## 5. 内容与合规
