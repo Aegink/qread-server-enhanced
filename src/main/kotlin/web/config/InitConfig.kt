@@ -16,6 +16,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import web.controller.api.ApiWebSocket
 import web.util.cache.checkfile
+import web.util.security.maskToken
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.*
@@ -40,7 +41,7 @@ class InitConfig {
             val socket=ApiWebSocket.get(tocken)
             if(socket!=null){
                 val id= UUID.randomUUID().toString()
-                logger.info("startBrowser ,url: $urlStr ,title: $title, tocken: $tocken ")
+                logger.info("startBrowser ,url: $urlStr ,title: $title, tocken: ${maskToken(tocken)} ")
                 socket.send(Gson().toJson(WebMessage(msg = "startBrowser", url = urlStr,title=title,id=id, header = header, body = name )))
                 kotlin.runCatching {
                     val rez= GSON.fromJson(ApiWebSocket.WaitForResponse(id, tocken), StartBrowserRe::class.java)
@@ -70,7 +71,7 @@ class InitConfig {
             val socket=ApiWebSocket.get(tocken)
             if(socket!=null){
                 val id= UUID.randomUUID().toString()
-                logger.info("startBrowserdp ,url: $urlStr ,title: $title, tocken: $tocken ")
+                logger.info("startBrowserdp ,url: $urlStr ,title: $title, tocken: ${maskToken(tocken)} ")
                 socket.send(Gson().toJson(WebMessage(msg = "startBrowserdp", url = urlStr,title=title,id=id, header = header )))
             }
         }

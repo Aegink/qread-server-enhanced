@@ -48,7 +48,11 @@ open class BaseController {
         }
         val tocken = resolveUserToken(usertockenMapper, accessToken)
             ?: throw DataThrowable().data(JsonResponse(false,NEED_LOGIN))
-        val user= tocken.userid?.let { usersMapper.getUser(it)  } ?: throw DataThrowable().data(JsonResponse(false,NEED_LOGIN))
+        // 在源头保证 id 非空：后续各接口里大量 user.id!! 依赖这一点，数据异常时
+        // 应该得到「请重新登录」而不是 NPE + 500
+        val user= tocken.userid?.let { usersMapper.getUser(it)  }
+            ?.takeIf { !it.id.isNullOrBlank() }
+            ?: throw DataThrowable().data(JsonResponse(false,NEED_LOGIN))
         return user
     }
 

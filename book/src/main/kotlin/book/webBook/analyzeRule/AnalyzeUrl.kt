@@ -67,6 +67,10 @@ class AnalyzeUrl(
     private var followRedirects: Boolean? = null
 
     companion object {
+        /** 书源自定义 readTimeout 的上限：再大就只是白占线程（默认 15s，这里给到 120s）。 */
+        private const val MAX_READ_TIMEOUT = 120 * 1000L
+        /** 单次请求的总耗时上限。 */
+        private const val MAX_CALL_TIMEOUT = 300 * 1000L
         val paramPattern: Pattern = Pattern.compile("\\s*,\\s*(?=\\{)")
         private val pagePattern = Pattern.compile("<(.*?)>")
         private val concurrentRecordMap = hashMapOf<String, ConcurrentRecord>()
@@ -718,12 +722,14 @@ class AnalyzeUrl(
             return client
         }
         return client.newBuilder().apply {
+            // 书源可以自定义超时；这里加上限，避免一个坏源把请求线程占住十几分钟
             readTimeout?.let {
-                readTimeout(it, TimeUnit.MILLISECONDS)
-                callTimeout(max(60 * 1000L, it * 2), TimeUnit.MILLISECONDS)
+                val ms = it.coerceIn(1L, MAX_READ_TIMEOUT)
+                readTimeout(ms, TimeUnit.MILLISECONDS)
+                callTimeout(max(60 * 1000L, ms * 2).coerceAtMost(MAX_CALL_TIMEOUT), TimeUnit.MILLISECONDS)
             }
             callTimeout?.let {
-                callTimeout(it, TimeUnit.MILLISECONDS)
+                callTimeout(it.coerceIn(1L, MAX_CALL_TIMEOUT), TimeUnit.MILLISECONDS)
             }
             followRedirects?.let {
                 followRedirects(it)

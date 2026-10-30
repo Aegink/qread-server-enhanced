@@ -49,8 +49,8 @@ open class BaseDebug: SimpleWebSocketListener()  {
             return null
         }
         val tocken = resolveUserToken(usertockenMapper, accessToken) ?: return null
-        val user=tocken.userid?.let { usersMapper.getUser(it) }
-        return user
+        // id 为空的脏数据视为未登录，调用方大量使用 user.id!!
+        return tocken.userid?.let { usersMapper.getUser(it) }?.takeIf { !it.id.isNullOrBlank() }
     }
 }
 

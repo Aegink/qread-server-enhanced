@@ -137,7 +137,8 @@ class ApiWebSocket : SimpleWebSocketListener() {
         }
 
         val user= tocken.userid?.let { usersMapper.getUser(it) }
-        if (user == null) {
+        // id 为空的脏数据按「需重新登录」处理，避免下面 user.id!! 抛 NPE
+        if (user == null || user.id.isNullOrBlank()) {
             logger.info("websocket user is null")
             socket.send(Gson().toJson(ToastMessage(msg = "logout", str="logout" )))
             socket.close()
