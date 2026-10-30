@@ -2,6 +2,7 @@ package book.webBook.analyzeRule
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -40,5 +41,12 @@ class AnalyzeRuleGetElementsTest {
         val elements = rule("""{"data":{"list":[{"n":1},{"n":2},{"n":3}]}}""").getElements("$.data.list[*]")
 
         assertEquals(3, elements.size)
+    }
+
+    @Test
+    fun getElementOnMissingJsonPathReturnsNullInsteadOfThrowing() {
+        val rule = rule("""{"a":1}""")
+
+        assertNull(rule.getElement("$.data.name"), "JSON 路径缺失应返回 null，而不是抛 PathNotFoundException")
     }
 }

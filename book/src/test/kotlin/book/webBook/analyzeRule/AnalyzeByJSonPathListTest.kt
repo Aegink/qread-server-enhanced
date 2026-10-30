@@ -3,6 +3,7 @@ package book.webBook.analyzeRule
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.test.assertNull
 
 /**
  * JSONPath 列表规则的回归：书源里 `bookList` / `chapterList` 大量使用 `$.xxx` 与 `$..` 形态。
@@ -64,5 +65,17 @@ class AnalyzeByJSonPathListTest {
     fun missingPathReturnsEmptyList() {
         val result = AnalyzeByJSonPath(json).getList("\$.nope")
         assertTrue(result.isNullOrEmpty(), "缺失路径应返回空列表，实际: $result")
+    }
+
+    @Test
+    fun missingPathForSingleObjectReturnsNull() {
+        // 少年梦（知秋）真源：searchUrl 返回 {"code":0,...}，规则写 $['data']，
+        // 曾经抛 PathNotFoundException 打断整次搜索；这里钉住"取不到就是 null"
+        assertNull(AnalyzeByJSonPath(json).getObject("\$.nope"), "缺失路径应返回 null 而不是抛异常")
+    }
+
+    @Test
+    fun existingPathForSingleObjectStillReads() {
+        assertEquals("p2", AnalyzeByJSonPath(json).getObject("\$.next"))
     }
 }

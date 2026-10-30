@@ -48,7 +48,7 @@ class RealSourceLiveSmokeTest {
                 return@forEach
             }
             val outcome = runCatching {
-                withTimeoutOrNull(90_000) { probe(source, key) } ?: "超时(90s)"
+                withTimeoutOrNull(60_000) { probe(source, key) } ?: "超时(60s)"
             }.getOrElse { error ->
                 // 打印前 12 帧堆栈，便于定位是引擎还是站点问题
                 error.stackTrace.take(12).forEach { frame ->
