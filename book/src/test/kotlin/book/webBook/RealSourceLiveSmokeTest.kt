@@ -1,5 +1,6 @@
 package book.webBook
 
+import book.model.Book
 import book.model.BookSource
 import java.io.File
 import kotlinx.coroutines.runBlocking
@@ -48,7 +49,13 @@ class RealSourceLiveSmokeTest {
             }
             val outcome = runCatching {
                 withTimeoutOrNull(90_000) { probe(source, key) } ?: "超时(90s)"
-            }.getOrElse { "${it.javaClass.simpleName}: ${it.message}" }
+            }.getOrElse { error ->
+                // 打印前 12 帧堆栈，便于定位是引擎还是站点问题
+                error.stackTrace.take(12).forEach { frame ->
+                    println("    at $frame")
+                }
+                "${error.javaClass.simpleName}: ${error.message}"
+            }
             if (outcome.startsWith("OK ")) {
                 println("[通过] $label -> $outcome")
                 passed++
@@ -66,12 +73,32 @@ class RealSourceLiveSmokeTest {
         val results = web.searchBook(key, 1)
         if (results.isEmpty()) return "搜索无结果（可能被风控或关键词不匹配）"
         val first = results.first()
-        val book = web.getBookInfo(first.bookUrl, canReName = false)
-        val chapters = web.getChapterList(book)
-        if (chapters.isEmpty()) return "搜索结果=${results.size} 但目录为空"
+        // 与 App 行为一致：把搜索结果的元数据带进详情页，书源没有详情规则时也不会丢书名
+        val book = Book(
+            bookUrl = first.bookUrl,
+            origin = source.bookSourceUrl,
+            originName = source.bookSourceName,
+            name = first.name,
+            author = first.author,
+            kind = first.kind,
+            coverUrl = first.coverUrl,
+            intro = first.intro,
+            latestChapterTitle = first.latestChapterTitle,
+            tocUrl = first.tocUrl,
+            type = source.bookSourceType,
+            userid = "live-smoke"
+        )
+        val info = web.getBookInfo(book, canReName = false)
+        val chapters = web.getChapterList(info)
+        if (chapters.isEmpty()) return "搜索结果=${results.size} 但目录为空（书名=${info.name}）"
         val chapter = chapters.first()
-        val content = web.getBookContent(book, chapter)
-        return "OK 结果=${results.size} 书名=${book.name} 目录=${chapters.size} 首章=${chapter.title} 正文=${content.length}字"
+        val content = web.getBookContent(info, chapter)
+        val nameFrom = when {
+            info.name.isBlank() -> "无"
+            info.name == first.name -> "搜索结果"
+            else -> "详情页"
+        }
+        return "OK 结果=${results.size} 书名=${info.name}（$nameFrom）目录=${chapters.size} 首章=${chapter.title} 正文=${content.length}字"
     }
 
     private fun loadSources(): List<BookSource> {

@@ -21,6 +21,7 @@ import com.script.buildScriptBindings
 import com.script.rhino.RhinoScriptEngine
 import kotlinx.coroutines.runBlocking
 import org.jsoup.nodes.Entities
+import org.mozilla.javascript.NativeArray
 import org.mozilla.javascript.NativeObject
 import org.mozilla.javascript.Scriptable
 import org.slf4j.Logger
@@ -460,8 +461,31 @@ open class AnalyzeRule(
                 }
             }
         }
-        result?.let {
-            return it as List<Any>
+        // 与上游一致：JS 规则可能返回字符串/数组/NativeArray 等，非列表结果不能硬转（曾导致
+        // ClassCastException: String cannot be cast to List，把整个搜索打断）
+        when (val value = result) {
+            is List<*> -> {
+                if (value.none { it == null || it === Scriptable.NOT_FOUND }) {
+                    @Suppress("UNCHECKED_CAST")
+                    return value as List<Any>
+                }
+                return value.mapNotNull { it?.takeUnless { item -> item === Scriptable.NOT_FOUND } }
+            }
+
+            is Array<*> -> {
+                return value.mapNotNull { it?.takeUnless { item -> item === Scriptable.NOT_FOUND } }
+            }
+
+            is NativeArray -> {
+                val values = ArrayList<Any>(value.length.toInt())
+                for (index in 0 until value.length.toInt()) {
+                    val item = value.get(index, value)
+                    if (item != null && item !== Scriptable.NOT_FOUND) {
+                        values.add(item)
+                    }
+                }
+                return values
+            }
         }
         return ArrayList()
     }
